@@ -1,0 +1,30 @@
+# Method 2/3 (primary): rotate temporal self-attention 180 degrees, then a
+# lightweight LoRA fine-tune. See revt2v/methods/attn_rotation.py. Run with:
+#   python scripts/train.py --config configs/attn_rotation.yaml --hf-repo <you>/revt2v-checkpoints
+
+seed: 42
+method: attn_rotation
+
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+data_root: data/latents
+checkpoint_dir: results/checkpoints
+
+# "Lightweight" per the paper: rank stays small since the attention rotation
+# does the heavy lifting and LoRA is only cleaning up artifacts.
+lora_rank: 4
+lora_alpha: 8
+lora_dropout: 0.0
+target_modules: null # TODO: fill in — see LEARNING.md step 1
+
+# Ablation-only, inactive by default — see AttentionRotation.loss.
+rotation_weight: 0.0
+
+batch_size: 1
+learning_rate: 0.0001
+num_steps: 1000

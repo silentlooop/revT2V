@@ -1,0 +1,37 @@
+# Shared defaults. Method-specific configs (attn_rotation.yaml, etc.) copy
+# this file and only change what differs — see configs/*.yaml.
+#
+# Override any value from the CLI without editing this file:
+#   python scripts/train.py --config configs/default.yaml --set learning_rate=2e-4 num_steps=500
+
+seed: 42
+method: baseline # one of: baseline, attn_rotation, motion_prior
+
+# Teacher / data generation
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+# Paths (left unset here -> revt2v.utils picks Kaggle/Colab/local defaults;
+# set explicitly to override)
+data_root: data/latents
+checkpoint_dir: results/checkpoints
+
+# LoRA
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.0
+# TODO (you fill this in): names/suffixes of the temporal self-attention
+# Linear layers to attach LoRA to. Find them in notebooks/scratch.ipynb by
+# printing `unet.named_modules()` and looking for names containing "temp"
+# — see LEARNING.md step 1. Leaving this null will make student.build_student
+# target nothing useful.
+target_modules: null
+
+# Training
+batch_size: 1
+learning_rate: 0.0001
+num_steps: 1000

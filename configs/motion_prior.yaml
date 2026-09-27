@@ -1,0 +1,29 @@
+# Method 3/3 (secondary): reconcile forward/backward motion priors with an
+# auxiliary loss term. See revt2v/methods/motion_prior.py. Run with:
+#   python scripts/train.py --config configs/motion_prior.yaml --hf-repo <you>/revt2v-checkpoints
+
+seed: 42
+method: motion_prior
+
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+data_root: data/latents
+checkpoint_dir: results/checkpoints
+
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.0
+target_modules: null # TODO: fill in — see LEARNING.md step 1
+
+# 0.0 = plain epsilon loss (same as baseline) until predicted_x0 is wired up
+# in MotionPrior.loss — see that file's TODOs before raising this.
+prior_weight: 0.0
+
+batch_size: 1
+learning_rate: 0.0001
+num_steps: 1000

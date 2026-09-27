@@ -1,0 +1,50 @@
+# OS junk
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / env files
+.env
+*.env.local
+
+# Weights, videos, data, results (regenerated, never committed)
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.mp4
+*.gif
+*.avi
+data/
+results/**
+!results/.gitkeep
+checkpoints/
+wandb/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Kaggle / Colab local mounts
+/kaggle/
+/content/

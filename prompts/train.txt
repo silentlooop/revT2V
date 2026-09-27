@@ -1,0 +1,154 @@
+A person is air drumming
+A person is archery
+A person is arranging flowers
+A person is baby waking up
+A person is barbequing
+A person is bending metal
+A person is brushing teeth
+A person is bungee jumping
+A person is canoeing or kayaking
+A person is catching or throwing baseball
+A person is catching or throwing frisbee
+A person is cheerleading
+A person is clapping
+A person is clay pottery making
+A person is cleaning windows
+A person is climbing a rope
+A person is counting money
+A person is crawling baby
+A person is cutting nails
+A person is cutting watermelon
+A person is dancing ballet
+A person is digging
+A person is doing aerobics
+A person is doing laundry
+A person is drawing
+A person is driving car
+A person is dunking basketball
+A person is eating watermelon
+A person is flying kite
+A person is getting a haircut
+A person is giving or receiving award
+A person is grooming dog
+A person is hugging
+A person is hula hooping
+A person is ice skating
+A person is ironing
+A person is jogging
+A person is knitting
+A person is laughing
+A person is making bed
+A person is marching
+A person is massaging legs
+A person is milking cow
+A person is motorcycling
+A person is peeling apples
+A person is petting animal (not cat)
+A person is planting trees
+A person is playing controller
+A person is playing flute
+A person is playing harp
+A person is playing piano
+A person is push up
+A person is pushing cart
+A person is reading book
+A person is riding a bike
+A person is riding or walking with horse
+A person is riding scooter
+A person is robot dancing
+A person is rock climbing
+A person is roller skating
+A person is running on treadmill
+A person is sailing
+A person is shaking hands
+A person is shaking head
+A person is shining shoes
+A person is shooting basketball
+A person is shooting goal (soccer)
+A person is shuffling cards
+A person is skydiving
+A person is smoking
+A person is squat
+A person is sticking tongue out
+A person is stretching leg
+A person is strumming guitar
+A person is sweeping floor
+A person is sword fighting
+A person is tai chi
+A person is taking a shower
+A person is tasting beer
+A person is throwing axe
+A person is trimming or shaving beard
+A person is tying tie
+A person is using computer
+A person is washing dishes
+A person is washing hands
+A person is wrestling
+A person is writing
+a bear climbing a tree
+a bear hunting for prey
+a bear sniffing the air for scents of food
+a bicycle accelerating to gain speed
+a bicycle leaning against a tree
+a bicycle slowing down to stop
+a bird building a nest from twigs and leaves
+a bird flying over a snowy forest
+a bird soaring gracefully in the sky
+a boat accelerating to gain speed
+a boat sailing smoothly on a calm lake
+a boat slowing down to stop
+a bus accelerating to gain speed
+a bus stuck in traffic during rush hour
+a bus turning a corner
+a car slowing down to stop
+a car stuck in traffic during rush hour
+a car turning a corner
+a cat grooming itself meticulously with its tongue
+a cat playing in park
+a cat running happily
+a cow bending down to drink water from a river
+a cow chewing cud while resting in a tranquil barn
+a cow running to join a herd of its kind
+a dog enjoying a peaceful walk
+a dog playing in park
+a dog running happily
+a dolphin leaping out of the ocean waves
+a fox trotting through a autumn forest
+a giraffe bending down to drink water from a river
+a giraffe running to join a herd of its kind
+a giraffe taking a peaceful walk
+a horse bending down to drink water from a river
+a horse taking a peaceful walk
+a hot air balloon rising slowly into the sky
+a kite dancing in a gusty wind
+a motorcycle accelerating to gain speed
+a motorcycle cruising along a coastal highway
+a motorcycle gliding through a snowy field
+a motorcycle slowing down to stop
+a motorcycle turning a corner
+a penguin waddling across the ice
+a person drinking coffee in a cafe
+a person eating a burger
+a person giving a presentation to a room full of colleagues
+a person playing guitar
+a person swimming in ocean
+a person walking in the snowstorm
+a person washing the dishes
+a rabbit hopping across a green meadow
+a sailboat drifting away from a harbor
+a sheep bending down to drink water from a river
+a sheep running to join a herd of its kind
+a sheep taking a peaceful walk
+a squirrel burying an acorn in the ground
+a train speeding down the tracks
+a truck accelerating to gain speed
+a truck anchored in a tranquil bay
+a truck turning a corner
+a wolf howling at the moon on a snowy ridge
+a zebra taking a peaceful walk
+an airplane accelerating to gain speed
+an airplane landing smoothly on a runway
+an airplane soaring through a clear blue sky
+an airplane taking off
+an elephant running to join a herd of its kind
+an elephant taking a peaceful walk

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "revt2v"
+version = "0.1.0"
+description = "Distilling video diffusion models for reverse-time video generation (IE 643 course project)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Manthan" }]
+
+# torch is intentionally NOT listed here: Kaggle and Colab ship a preinstalled
+# torch build matched to their GPU/driver, and pip-installing a different one
+# on top routinely breaks CUDA. Install torch yourself (or trust the notebook
+# environment) before `pip install -e .`.
+dependencies = [
+    "diffusers>=0.27",
+    "transformers>=4.38",
+    "accelerate>=0.28",
+    "peft>=0.10",
+    "imageio[ffmpeg]>=2.34",
+    "pyyaml>=6.0",
+    "huggingface_hub>=0.21",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["revt2v*"]
