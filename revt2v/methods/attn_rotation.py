@@ -9,7 +9,7 @@ import torch
 
 
 class RotatedTemporalAttnProcessor:
-    """Apply flipped-query and flipped-key temporal self-attention."""
+    """Apply reversed queries and keys to temporal self-attention."""
 
     def __call__(
         self,
@@ -20,10 +20,11 @@ class RotatedTemporalAttnProcessor:
         temb: Optional[Any] = None,
         **kwargs: Any,
     ) -> Any:
-        """Run temporal self-attention with reversed queries and keys."""
-        assert encoder_hidden_states is None, "RotatedTemporalAttnProcessor is self-attention only"
+        """Run temporal self-attention with reversed frame queries and keys."""
 
         residual = hidden_states
+        if encoder_hidden_states is not None:
+            raise ValueError("Temporal attention processor expects self-attention")
 
         query = attn.to_q(hidden_states)
         key = attn.to_k(hidden_states)
@@ -65,7 +66,12 @@ class AttentionRotation:
         replaced = 0
         for name in processors:
             lowered_name = name.lower()
-            if ("temporal" in lowered_name or "temp" in lowered_name) and name.endswith("attn1.processor"):
+            is_temporal = (
+                "temporal" in lowered_name
+                or "temp" in lowered_name
+            )
+            is_temporal_attention = name.endswith("attn1.processor") or name.endswith("attn2.processor")
+            if is_temporal and is_temporal_attention:
                 processors[name] = RotatedTemporalAttnProcessor()
                 replaced += 1
 
