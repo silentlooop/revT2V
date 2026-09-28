@@ -24,14 +24,39 @@ checkpoint_dir: results/checkpoints
 lora_rank: 8
 lora_alpha: 16
 lora_dropout: 0.0
-# TODO (you fill this in): names/suffixes of the temporal self-attention
-# Linear layers to attach LoRA to. Find them in notebooks/scratch.ipynb by
-# printing `unet.named_modules()` and looking for names containing "temp"
-# — see LEARNING.md step 1. Leaving this null will make student.build_student
-# target nothing useful.
+# TODO (you fill this in): the temporal self-attention Linear layers to
+# attach LoRA to, scoped so peft's suffix matching can't also hit spatial/
+# cross-attention — see LEARNING.md step 1 and revt2v.student.build_student's
+# docstring. Leaving this null will make student.build_student target
+# nothing useful.
 target_modules: null
+
+# attn_rotation only: which temporal attention layers get rotated —
+# "up_attn1" (9 layers), "all" (34 layers, incl. transformer_in), or "none".
+# Ignored by baseline/motion_prior (they never rotate).
+rotate_layers: none
 
 # Training
 batch_size: 1
 learning_rate: 0.0001
 num_steps: 1000
+grad_accum_steps: 4 # optimizer steps every N micro-batches; num_steps counts optimizer steps
+uncond_prob: 0.1 # per-sample probability of swapping in the empty-prompt embedding (CFG dropout)
+
+# Checkpointing / HF Hub (CLI flags --hf-repo/--hf-dataset-repo override these)
+hf_repo: null # private HF *model* repo for checkpoints
+hf_dataset_repo: null # private HF *dataset* repo latent shards are pulled from if data_root is empty
+save_every_steps: 200
+push_every_seconds: 600.0
+
+# Logging / periodic sampling
+log_every_steps: 20
+sample_every_steps: 250
+sample_inference_steps: 25
+sample_seed: 0
+sample_prompts:
+  - "A person is bandaging"
+  - "A person is bending back"
+
+# Memory
+gradient_checkpointing: false

@@ -1,6 +1,10 @@
-# Method 2/3 (primary): rotate temporal self-attention 180 degrees, then a
-# lightweight LoRA fine-tune. See revt2v/methods/attn_rotation.py. Run with:
+# Method 2/3 (primary): rotate the 9 up-block temporal self-attention
+# (attn1) layers 180 degrees, then a lightweight LoRA fine-tune on those same
+# layers. See revt2v/methods/attn_rotation.py. Run with:
 #   python scripts/train.py --config configs/attn_rotation.yaml --hf-repo <you>/revt2v-checkpoints
+#
+# Identical to baseline.yaml except `method` and `rotate_layers`; identical
+# to attn_rotation_all.yaml except `rotate_layers` and `target_modules`.
 
 seed: 42
 method: attn_rotation
@@ -17,14 +21,36 @@ checkpoint_dir: results/checkpoints
 
 # "Lightweight" per the paper: rank stays small since the attention rotation
 # does the heavy lifting and LoRA is only cleaning up artifacts.
-lora_rank: 4
+lora_rank: 8
 lora_alpha: 8
 lora_dropout: 0.0
-target_modules: null # TODO: fill in — see LEARNING.md step 1
+# The 9 up_blocks attn1 layers x (to_v, to_out.0) = 18 LoRA-wrapped Linears.
+target_modules: '.*up_blocks.*temp_attentions.*attn1\.(to_v|to_out\.0)$'
+
+# "up_attn1" -> exactly the 9 layers above get rotated (asserted in
+# AttentionRotation.apply). See attn_rotation_all.yaml for the 34-layer ablation.
+rotate_layers: up_attn1
 
 # Ablation-only, inactive by default — see AttentionRotation.loss.
 rotation_weight: 0.0
 
-batch_size: 1
+batch_size: 4
 learning_rate: 0.0001
 num_steps: 1000
+grad_accum_steps: 4
+uncond_prob: 0.1
+
+hf_repo: null
+hf_dataset_repo: null
+save_every_steps: 200
+push_every_seconds: 600.0
+
+log_every_steps: 20
+sample_every_steps: 250
+sample_inference_steps: 25
+sample_seed: 0
+sample_prompts:
+  - "A person is bandaging"
+  - "A person is bending back"
+
+gradient_checkpointing: false

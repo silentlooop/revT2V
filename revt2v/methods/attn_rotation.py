@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import torch
+from diffusers import TransformerTemporalModel
 
 
 
@@ -54,8 +55,32 @@ class RotatedTemporalAttnProcessor:
 class AttentionRotation:
     """Install rotated processors on temporal self-attention layers."""
 
-    def apply(self, student: Any) -> Any:
-        """Replace temporal self-attention processors and return the student."""
+    # Expected processor counts for this UNet's architecture, used as a
+    # sanity assert so a diffusers version bump or a wrong rotate_layers
+    # value fails loudly instead of silently rotating the wrong set.
+    LAYER_COUNTS = {"up_attn1": 9, "all": 34, "none": 0}
+
+    def apply(self, student: Any, rotate_layers: str = "up_attn1", **kwargs: Any) -> Any:
+        """Replace temporal self-attention processors and return the student.
+
+        `rotate_layers` selects which temporal attention layers get rotated,
+        identified by class (`TransformerTemporalModel`), not by name
+        fragments:
+        - "up_attn1": only attn1 (self-attention) in up_blocks (9 layers).
+        - "all": attn1 + attn2 in every TransformerTemporalModel, including
+          `transformer_in` (34 layers). attn2 here is a second temporal
+          self-attention pass, not text cross-attention — ModelScope's
+          temp_attentions are built with `double_self_attention=True`, which
+          forces attn2's `cross_attention_dim` to None and the UNet always
+          calls temp_attentions without `encoder_hidden_states`, so attn2
+          runs as self-attention over the same frame-axis sequence as attn1.
+        - "none": no rotation (matches Baseline.apply's behavior).
+        """
+        if rotate_layers not in self.LAYER_COUNTS:
+            raise ValueError(f"rotate_layers must be one of {list(self.LAYER_COUNTS)}, got {rotate_layers!r}")
+
+        if rotate_layers == "none":
+            return student
 
         unet = (
             student.get_base_model()
@@ -63,20 +88,26 @@ class AttentionRotation:
             else student.base_model.model
         )
         processors = dict(unet.attn_processors)
-        replaced = 0
-        for name in processors:
-            lowered_name = name.lower()
-            is_temporal = (
-                "temporal" in lowered_name
-                or "temp" in lowered_name
-            )
-            is_temporal_attention = name.endswith("attn1.processor") or name.endswith("attn2.processor")
-            if is_temporal and is_temporal_attention:
-                processors[name] = RotatedTemporalAttnProcessor()
-                replaced += 1
+        attn_names = ("attn1",) if rotate_layers == "up_attn1" else ("attn1", "attn2")
 
-        if replaced == 0:
-            raise ValueError("No temporal self-attention processors were found")
+        replaced = 0
+        for name, module in unet.named_modules():
+            if not isinstance(module, TransformerTemporalModel):
+                continue
+            if rotate_layers == "up_attn1" and not name.startswith("up_blocks."):
+                continue
+            for block_idx in range(len(module.transformer_blocks)):
+                for attn_name in attn_names:
+                    key = f"{name}.transformer_blocks.{block_idx}.{attn_name}.processor"
+                    processors[key] = RotatedTemporalAttnProcessor()
+                    replaced += 1
+
+        expected = self.LAYER_COUNTS[rotate_layers]
+        if replaced != expected:
+            raise ValueError(
+                f"Expected {expected} temporal attention layers for "
+                f"rotate_layers={rotate_layers!r}, found {replaced}"
+            )
 
         unet.set_attn_processor(processors)
         return student

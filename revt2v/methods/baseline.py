@@ -25,13 +25,14 @@ import torch
 class Baseline:
     """No-op `apply`; standard epsilon loss."""
 
-    def apply(self, student: Any) -> Any:
+    def apply(self, student: Any, **kwargs: Any) -> Any:
         """Return `student` unchanged — baseline has no architecture
         intervention, it's the identity in the method pipeline.
 
         Kept as a method (not skipped) so `train.py` can call
-        `method.apply(student)` uniformly across all three methods without
-        special-casing baseline.
+        `method.apply(student, rotate_layers=...)` uniformly across all
+        three methods without special-casing baseline; `**kwargs` absorbs
+        `rotate_layers` (baseline always rotates nothing, regardless).
         """
         return student
 

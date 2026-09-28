@@ -36,11 +36,11 @@ class MotionPrior:
     """No architecture change (`apply` is a no-op, like baseline); the
     difference from baseline is entirely in `loss`."""
 
-    def apply(self, student: Any) -> Any:
+    def apply(self, student: Any, **kwargs: Any) -> Any:
         """Return `student` unchanged.
 
         See `Baseline.apply` for why this is still a method rather than
-        skipped.
+        skipped, and why it accepts (and ignores) `rotate_layers`.
         """
         return student
 

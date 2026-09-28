@@ -22,18 +22,16 @@ def load_student_for_inference(
     lora_rank: int = 8,
     lora_alpha: int = 16,
     target_modules: Optional[list] = None,
+    rotate_layers: Optional[str] = None,
 ):
-    """Load the teacher pipeline, student adapter, method, and checkpoint."""
-    teacher_pipeline = teacher_module.load_teacher(model_id, device, dtype)
-    student = student_module.build_student(
-        teacher_pipeline,
-        lora_rank=lora_rank,
-        lora_alpha=lora_alpha,
-        target_modules=target_modules,
-    )
+    """Load the teacher pipeline, student adapter, method, and checkpoint.
 
-    student = METHODS[method_name]().apply(student)
-
+    `lora_rank`/`lora_alpha`/`target_modules`/`rotate_layers` default to
+    whatever `scripts/train.py` saved into the checkpoint's metadata (its
+    full training config), so an `attn_rotation_all` checkpoint is never
+    accidentally loaded with the `attn_rotation` default (`up_attn1`) —
+    explicit args here still override the saved config if passed.
+    """
     checkpoint_manager = CheckpointManager(checkpoint_dir, repo_id=hf_repo_id)
     checkpoint_payload = checkpoint_manager.resume()
     if checkpoint_payload is None:
@@ -48,6 +46,21 @@ def load_student_for_inference(
             f"Checkpoint payload for method '{method_name}' "
             "does not contain a 'model' key"
         )
+
+    saved_config = checkpoint_payload.get("metadata", {}).get("config") or {}
+    lora_rank = saved_config.get("lora_rank", lora_rank)
+    lora_alpha = saved_config.get("lora_alpha", lora_alpha)
+    target_modules = target_modules or saved_config.get("target_modules")
+    rotate_layers = rotate_layers or saved_config.get("rotate_layers", "none")
+
+    teacher_pipeline = teacher_module.load_teacher(model_id, device, dtype)
+    student = student_module.build_student(
+        teacher_pipeline,
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        target_modules=target_modules,
+    )
+    student = METHODS[method_name]().apply(student, rotate_layers=rotate_layers)
 
     student_module.load_lora_state_dict(student, state_dict)
     student.eval()
