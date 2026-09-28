@@ -26,10 +26,10 @@ target_modules: '.*up_blocks.*temp_attentions.*attn1\.(to_v|to_out\.0)$'
 
 rotate_layers: none # baseline never rotates; kept for config symmetry
 
-batch_size: 4
+batch_size: 1 # 4 OOM'd on a T4 (14.56 GiB); grad_accum_steps raised to keep the same effective batch of 16
 learning_rate: 0.0001
 num_steps: 1000
-grad_accum_steps: 4
+grad_accum_steps: 16
 uncond_prob: 0.1
 
 hf_repo: null
