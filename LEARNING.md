@@ -87,7 +87,7 @@ hours to all 154 training prompts.
 budget accordingly against the weekly 30-hour cap. Each `.pt` record is
 small (a few MB — mostly the fp16 latents and two 77x1024 embeddings).
 
-## Step 3 — `student.py` + `baseline` -> first training run
+## Step 3 — `student.py` -> first training run
 
 **Concepts first:** what LoRA actually inserts into a linear layer and why
 only those extra parameters need gradients; the standard diffusion
@@ -95,21 +95,20 @@ training objective (sample noise, corrupt at a random timestep, predict
 the noise back out); why this project needs no teacher forward pass at
 train time (the teacher's only job was building the dataset in step 2).
 
-**Files/TODOs:** `revt2v/student.py` (all functions), `revt2v/methods/baseline.py`
-(`apply`, `loss`). There's no dedicated `losses.py` — noise sampling and
+**Files/TODOs:** `revt2v/student.py` (all functions). There's no dedicated `losses.py` — noise sampling and
 MSE loss are written directly in `scripts/train.py` and `methods/*.py`.
 
 **Verify, in order:**
 1. `pytest tests/test_student.py` — CPU-only, no download, uses a tiny
    toy "U-Net" instead of the real one, checks that *only* LoRA parameters
    have `requires_grad=True` after `build_student`.
-2. On Kaggle, set `target_modules` in `configs/baseline.yaml` to the
-   layer names you found in step 1's scratch script, scoped to temporal
-   attention only (e.g. a regex like
+2. On Kaggle, check `target_modules` in `configs/attn_rotation.yaml`
+   — it must be
+   scoped to temporal attention only (e.g. a regex like
    `r".*temp_attentions.*\.(to_q|to_k|to_v|to_out\.0)$"` — a bare name like
    `"to_v"` would also match spatial/cross-attention; `build_student` warns
    at runtime if that happens), then:
-   `python scripts/train.py --config configs/baseline.yaml --set num_steps=50 --hf-repo <you>/revt2v-checkpoints`
+   `python scripts/train.py --config configs/attn_rotation.yaml --set num_steps=50 --hf-repo <you>/revt2v-checkpoints`
    — a short 50-step smoke run. Loss should be a finite number that
    generally trends down, not `nan` or flat at a huge value.
 
@@ -131,8 +130,8 @@ just the content, match the reversed teacher).
 **Files/TODOs:** `revt2v/infer.py` (`load_student_for_inference`,
 `generate`), the four `compute_*` functions in `scripts/evaluate.py`.
 
-**Verify:** `python scripts/evaluate.py --config configs/baseline.yaml --prompts prompts/test.txt --limit 5 --hf-repo <you>/revt2v-checkpoints`
-against the checkpoint from step 3. You should get `results/baseline/metrics.json`
+**Verify:** `python scripts/evaluate.py --config configs/attn_rotation.yaml --prompts prompts/test.txt --limit 5 --hf-repo <you>/revt2v-checkpoints`
+against the checkpoint from step 3. You should get `results/attn_rotation/metrics.json`
 and a handful of `*_compare.mp4` side-by-side videos you can actually
 watch — look at those before trusting the numbers, especially this early.
 
@@ -158,27 +157,31 @@ easy-to-get-backwards math above. Then on Kaggle:
 `python scripts/train.py --config configs/attn_rotation.yaml --hf-repo <you>/revt2v-checkpoints`,
 then evaluate the same way as step 4 with `--config configs/attn_rotation.yaml`.
 
-**Compare against baseline:** run `scripts/evaluate.py` for both methods
-on the same `prompts/test.txt` and look at the side-by-side videos and
-`metrics.json` next to each other — does rotation produce more convincing
-reverse motion than plain fine-tuning, even at a smaller LoRA rank?
+## Step 6 — `conv_mirror` (temporal-conv mirroring)
 
-## Step 6 — `motion_prior` (secondary method)
+**Concepts first:** ModelScope's temporal convs are `Conv3d` with kernel
+`(3, 1, 1)`. Flipping each kernel along time (`weight.flip(2)`) makes the
+whole U-Net an exact time-mirror: `unet_flipped(z) == flip(unet(flip(z)))`.
+Temporal attention needs no change (no positional encoding, so it's
+order-agnostic). Flips are all-or-nothing per layer — `0.5·W + 0.5·flip(W)`
+breaks the model. Because the flipped teacher is the same as reversing the
+teacher's output, the **oracle** is a reference/upper bound, not a learned
+method.
 
-**Concepts first:** the closed-form relationship between a predicted
-noise, a noisy latent, and an estimated clean latent (`x0`) at a given
-diffusion timestep — you'll need this to compute `predicted_x0` before the
-auxiliary loss in this method means anything.
+**Files:** `revt2v/methods/conv_mirror.py`, `configs/conv_mirror.yaml`.
+`attention_lora_targets` is an empty hook if you later want LoRA on
+temporal attention too.
 
-**Files/TODOs:** `revt2v/methods/motion_prior.py` — `apply`, `loss`,
-`motion_consistency_penalty`. Start with `prior_weight: 0.0` (the config
-default) so this method trains identically to baseline while you get the
-mechanics working, then wire up `predicted_x0` and raise `prior_weight`
-above 0 as an ablation.
+**Verify:** `pytest tests/test_conv_mirror.py` (CPU), then on a GPU the
+same file's U-Net exactness test. Train the conv student on Kaggle with
+`python scripts/train.py --config configs/conv_mirror.yaml --hf-repo <you>/revt2v-ckpt`
+(checkpoint lands in `conv_mirror/latest.pt`, never the root
+`latest.pt`). Set `mirror_loss_weight: 0` to train on reversed latents
+only, or `flip_blocks: [down]` for the partial-flip + LoRA experiment.
 
-**Verify:** train and evaluate the same way as steps 3-5, comparing
-`prior_weight: 0.0` vs. a small nonzero value (e.g. `0.1`) on the same
-prompts.
+**Compare:** run `notebooks/compare_methods.ipynb` on Colab — teacher,
+matched target, `attn_rotation`, conv oracle, and conv student (if
+trained) from the same noise, scored against the matched target.
 
 ## Step 7 — serve via Colab + Cloudflare
 

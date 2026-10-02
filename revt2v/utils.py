@@ -63,7 +63,7 @@ def load_config(path: str | Path, overrides: Optional[Iterable[str]] = None) -> 
     """Load a YAML config file and apply ``key=value`` CLI overrides on top.
 
     Args:
-        path: Path to a YAML file, e.g. ``configs/default.yaml``.
+        path: Path to a YAML file, e.g. ``configs/attn_rotation.yaml``.
         overrides: Strings of the form ``"key=value"`` or ``"a.b.key=value"``
             for nested sections, e.g. from ``--set learning_rate=0.0002``.
             Values are parsed with ``yaml.safe_load`` so ``"1e-4"`` becomes a
@@ -73,7 +73,7 @@ def load_config(path: str | Path, overrides: Optional[Iterable[str]] = None) -> 
         The merged config dict.
 
     Example:
-        >>> cfg = load_config("configs/default.yaml", ["learning_rate=2e-4", "method=attn_rotation"])
+        >>> cfg = load_config("configs/attn_rotation.yaml", ["learning_rate=2e-4"])
     """
     with open(path, "r") as handle:
         config: Dict[str, Any] = yaml.safe_load(handle) or {}
@@ -92,7 +92,7 @@ def add_config_args(parser: Any) -> None:
     """Add the standard ``--config`` / ``--set`` arguments to an argparse
     parser. Kept in one place so every script's `--set key=value` behaves
     identically."""
-    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"), help="Path to a YAML config file")
+    parser.add_argument("--config", type=Path, default=Path("configs/attn_rotation.yaml"), help="Path to a YAML config file")
     parser.add_argument(
         "--set",
         dest="overrides",
@@ -332,17 +332,26 @@ class CheckpointManager:
         repo_id: Optional[str] = None,
         push_every_seconds: float = 600.0,
         token: Optional[str] = None,
+        hub_subfolder: Optional[str] = None,
     ) -> None:
         self.local_dir = Path(local_dir)
         self.local_dir.mkdir(parents=True, exist_ok=True)
         self.repo_id = repo_id
         self.push_every_seconds = push_every_seconds
         self.token = token or get_hf_token()
+        # None -> "latest.pt" at the repo root (the original layout);
+        # e.g. "conv_mirror" -> "conv_mirror/latest.pt", so methods don't
+        # overwrite each other's checkpoints on the Hub.
+        self.hub_subfolder = hub_subfolder.strip("/") if hub_subfolder else None
         self._last_push = 0.0
 
     @property
     def local_path(self) -> Path:
         return self.local_dir / "latest.pt"
+
+    @property
+    def hub_filename(self) -> str:
+        return f"{self.hub_subfolder}/latest.pt" if self.hub_subfolder else "latest.pt"
 
     def resume(self, map_location: str = "cpu") -> Optional[Dict[str, Any]]:
         """Load the latest checkpoint payload, preferring a local file and
@@ -361,7 +370,7 @@ class CheckpointManager:
 
             downloaded = hf_hub_download(
                 repo_id=self.repo_id,
-                filename="latest.pt",
+                filename=self.hub_filename,
                 token=self.token,
             )
         except Exception:
@@ -412,7 +421,7 @@ class CheckpointManager:
     def _push_to_hub(self) -> None:
         if self.repo_id is None:
             return
-        push_file_to_hub(self.local_path, self.repo_id, "latest.pt", token=self.token)
+        push_file_to_hub(self.local_path, self.repo_id, self.hub_filename, token=self.token)
 
 
 def push_file_to_hub(

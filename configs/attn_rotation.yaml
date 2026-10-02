@@ -3,8 +3,8 @@
 # layers. See revt2v/methods/attn_rotation.py. Run with:
 #   python scripts/train.py --config configs/attn_rotation.yaml --hf-repo <you>/revt2v-checkpoints
 #
-# Identical to baseline.yaml except `method` and `rotate_layers`; identical
-# to attn_rotation_all.yaml except `rotate_layers` and `target_modules`.
+# For the 34-layer ablation, override from the CLI instead of a second config:
+#   --set rotate_layers=all target_modules='.*(temp_attentions\.\d+|^transformer_in)\.transformer_blocks\.\d+\.attn[12]\.(to_v|to_out\.0)$'
 
 seed: 42
 method: attn_rotation
@@ -28,7 +28,7 @@ lora_dropout: 0.0
 target_modules: '.*up_blocks.*temp_attentions.*attn1\.(to_v|to_out\.0)$'
 
 # "up_attn1" -> exactly the 9 layers above get rotated (asserted in
-# AttentionRotation.apply). See attn_rotation_all.yaml for the 34-layer ablation.
+# AttentionRotation.apply). "all" (34 layers) is the ablation, see header.
 rotate_layers: up_attn1
 
 # Ablation-only, inactive by default — see AttentionRotation.loss.

@@ -1,0 +1,64 @@
+# Method: temporal-conv mirroring. LoRA on all 88 temporal Conv3d layers
+# (inside TemporalConvLayer) of the UNflipped teacher, trained on reversed
+# latents plus an optional mirrored-teacher loss. See
+# revt2v/methods/conv_mirror.py. Run with:
+#   python scripts/train.py --config configs/conv_mirror.yaml --hf-repo <you>/revt2v-checkpoints
+#
+# Same seed/lr/steps/batch/grad accumulation/uncond_prob as attn_rotation.yaml.
+# The oracle (use_trained_weights: false = flipped teacher) needs no training;
+# use it from revt2v.infer.MethodBank as method "conv_oracle".
+
+seed: 42
+method: conv_mirror
+
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+data_root: data/latents
+checkpoint_dir: results/checkpoints
+
+lora_rank: 8
+lora_alpha: 8
+lora_dropout: 0.0
+# null -> ConvMirror.lora_targets() fills in the 88 temporal Conv3d names
+# (+ conv_mirror.attention_lora_targets(), empty for now): 2,580,480 LoRA
+# params at rank 8. The resolved list is saved in the checkpoint config.
+target_modules: null
+
+# true -> conv student (trained LoRA). false -> oracle (inference only).
+use_trained_weights: true
+# Blocks ("down", "mid", "up") whose temporal convs are flipped BEFORE
+# training, e.g. [down] for "partial flip + LoRA". Saved in the checkpoint
+# and re-applied at inference; any other flip on the trained student is
+# refused (it would double-reverse time).
+flip_blocks: []
+# lambda in eps-MSE + lambda * MSE(eps_student(x_t), flip(eps_teacher(flip(x_t)))).
+# 0 disables it.
+mirror_loss_weight: 1.0
+
+batch_size: 1 # 4 OOM'd on a T4 (14.56 GiB); grad_accum_steps raised to keep the same effective batch of 16
+learning_rate: 0.0001
+num_steps: 1000
+grad_accum_steps: 16
+uncond_prob: 0.1
+
+hf_repo: null
+hf_dataset_repo: null
+# Checkpoints go to <hf_repo>/conv_mirror/latest.pt, never the root latest.pt.
+hf_subfolder: conv_mirror
+save_every_steps: 200
+push_every_seconds: 600.0
+
+log_every_steps: 20
+sample_every_steps: 250
+sample_inference_steps: 25
+sample_seed: 0
+sample_prompts:
+  - "A person is bandaging"
+  - "A person is bending back"
+
+gradient_checkpointing: false

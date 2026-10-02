@@ -123,7 +123,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config, args.overrides)
-    method_name = args.method or config.get("method", "baseline")
+    method_name = args.method or config.get("method", "attn_rotation")
     seed_everything(config.get("seed", 42))
 
     data_root = args.data_root or Path(config.get("data_root", default_data_root()))
@@ -132,6 +132,14 @@ def main() -> None:
 
     hf_repo = args.hf_repo or config.get("hf_repo")
     hf_dataset_repo = args.hf_dataset_repo or config.get("hf_dataset_repo")
+    # None -> checkpoint pushed to the HF repo root (original layout); set
+    # per method so different methods never overwrite each other's latest.pt.
+    hf_subfolder = config.get("hf_subfolder")
+    if method_name == "conv_mirror":
+        if not hf_subfolder:
+            raise ValueError("conv_mirror must set hf_subfolder so it never overwrites the root (attn_rotation) checkpoint")
+        if not config.get("use_trained_weights", True):
+            raise ValueError("use_trained_weights=false is the conv oracle (flipped teacher); it needs no training")
     push_every_seconds = args.push_every_seconds if args.push_every_seconds is not None else config.get("push_every_seconds", 600.0)
     log_every_steps = args.log_every_steps if args.log_every_steps is not None else config.get("log_every_steps", 20)
     save_every_steps = args.save_every_steps if args.save_every_steps is not None else config.get("save_every_steps", 200)
@@ -156,6 +164,10 @@ def main() -> None:
     # instead, since alphas_cumprod only depends on the beta schedule, not
     # which scheduler class computes it.
     noise_scheduler = DDPMScheduler.from_config(pipeline.scheduler.config)
+    method = METHODS[method_name]()
+    if hasattr(method, "lora_targets") and not config.get("target_modules"):
+        # Saved into the checkpoint's config so inference rebuilds the same adapter.
+        config["target_modules"] = method.lora_targets(pipeline.unet)
     student = Student.build_student(
         pipeline,
         lora_rank=config.get("lora_rank", 8),
@@ -163,8 +175,11 @@ def main() -> None:
         lora_dropout=config.get("lora_dropout", 0.0),
         target_modules=config.get("target_modules"),
     )
-    method = METHODS[method_name]()
-    student = method.apply(student, rotate_layers=config.get("rotate_layers", "none"))
+    student = method.apply(
+        student,
+        rotate_layers=config.get("rotate_layers", "none"),
+        flip_blocks=config.get("flip_blocks") or [],
+    )
 
     optimizer = torch.optim.AdamW(
         (p for p in student.parameters() if p.requires_grad),
@@ -172,7 +187,7 @@ def main() -> None:
     )
 
     # --- Resume ---
-    ckpt = CheckpointManager(checkpoint_dir, repo_id=hf_repo, push_every_seconds=push_every_seconds)
+    ckpt = CheckpointManager(checkpoint_dir, repo_id=hf_repo, push_every_seconds=push_every_seconds, hub_subfolder=hf_subfolder)
     start_step = 0
     payload = None if args.fresh else ckpt.resume()
     if payload is not None:
@@ -233,9 +248,9 @@ def main() -> None:
             predicted_noise = Student.predict_noise(student, noisy_latents, timesteps, prompt_embeds)
             # Extra kwargs beyond (predicted_noise, target_noise) are method-specific
             # (e.g. rotation_weight, prior_weight) — every method accepts **extra so
-            # this call is uniform across baseline/attn_rotation/motion_prior. A
-            # method whose loss needs more context (e.g. motion_prior deriving
-            # predicted_x0) can read noisy_latents/timesteps/scheduler from here too.
+            # this call is uniform across attn_rotation/conv_mirror. A method
+            # whose loss needs more context (e.g. conv_mirror's mirrored-teacher
+            # term) can read noisy_latents/timesteps/student/etc. from here too.
             loss = method.loss(
                 predicted_noise,
                 noise,
@@ -245,6 +260,9 @@ def main() -> None:
                 target_x0=reversed_latents,
                 rotation_weight=config.get("rotation_weight", 0.0),
                 prior_weight=config.get("prior_weight", 0.0),
+                mirror_loss_weight=config.get("mirror_loss_weight", 0.0),
+                student=student,
+                encoder_hidden_states=prompt_embeds,
             )
 
             if not torch.isfinite(loss):
@@ -273,6 +291,7 @@ def main() -> None:
                 force_push=(step == num_steps - 1),
                 method=method_name,
                 config=config,
+                flip_blocks=list(config.get("flip_blocks") or []),
                 rng_state=torch.get_rng_state(),
             )
 

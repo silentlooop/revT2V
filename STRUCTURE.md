@@ -117,20 +117,26 @@ from: `student.py`, `teacher.py`, `methods/`, `utils.py`. Imported by:
 `scripts/evaluate.py`, `scripts/serve.py`. Runs: Kaggle (eval) and Colab
 (serving). Touch it: LEARNING.md step 4.
 
+`generate` also takes optional initial `latents`, so different methods can
+start from the same noise. `MethodBank` holds every inference method on ONE
+shared U-Net (fits a T4): `teacher`, `conv_oracle`, and, if their
+checkpoints exist, `attn_rotation` and `conv_student`. It switches by
+toggling LoRA adapters, attention processors, and conv flips, restoring the
+clean teacher after each call. `MethodBank.matched_target(prompt, z)` =
+`reverse(teacher(latents=flip(z)))`, the per-sample reference for a reverse
+generator started from `z`. Checkpoints load from `<method>/latest.pt` on
+the Hub, falling back to the original root `latest.pt` (never for
+`conv_mirror`).
+
 #### `revt2v/methods/__init__.py`
 Documents the shared `apply()`/`loss()` interface every method implements
 and exposes `METHODS`, the `{name: class}` lookup `scripts/train.py` and
 `scripts/serve.py` use for `--method`. Fully implemented — it's just
-wiring, not model logic. Imports from: the three method files below.
+wiring, not model logic. Imports from: the two method files below.
 Imported by: `scripts/train.py`, `scripts/evaluate.py`, `scripts/serve.py`.
 
-#### `revt2v/methods/baseline.py` — learning scaffold (2 functions, 2 TODOs)
-Method 1/3: no architecture change, plain epsilon loss — the control
-condition. Imports from: `torch` (MSE loss computed inline — there's no
-shared `losses.py`). Runs: Kaggle. Touch it: LEARNING.md step 3.
-
 #### `revt2v/methods/attn_rotation.py` — learning scaffold (3 items, 9 TODOs)
-Method 2/3 (primary): `RotatedTemporalAttnProcessor` (a diffusers
+Attention-rotation method: `RotatedTemporalAttnProcessor` (a diffusers
 attention-processor class implementing the 180-degree attention rotation)
 plus `AttentionRotation` (`apply` installs it on the U-Net's temporal
 self-attention layers, `loss` is epsilon loss with an optional ablation
@@ -138,11 +144,24 @@ term). Imports from: `torch`. Runs: Kaggle. Touch it: LEARNING.md
 step 5. Read the module docstring before coding — the correct operation
 is subtle to get right (see LEARNING.md step 5).
 
-#### `revt2v/methods/motion_prior.py` — learning scaffold (3 functions, 5 TODOs)
-Method 3/3 (secondary): epsilon loss plus an optional auxiliary term
-matching frame-to-frame motion between the student's estimated clean
-latents and the target. Imports from: `torch`. Runs: Kaggle. Touch
-it: LEARNING.md step 6.
+#### `revt2v/methods/conv_mirror.py` — temporal-conv mirroring
+Flips every temporal `Conv3d` kernel (inside `TemporalConvLayer`, 88 of
+them, kernel `(3, 1, 1)`) along time: `find_temporal_convs`,
+`flip_temporal_convs` (per block: down/mid/up; flip again to undo; never a
+blend), `ConvMirror` (`apply`/`loss`/`lora_targets`). Two modes via
+`use_trained_weights`:
+- `false` → **oracle** (`conv_oracle` in `MethodBank`): teacher with all
+  convs flipped, no LoRA, no training. Exactly `flip(teacher(flip(z)))`,
+  i.e. equivalent to reversing the teacher's output — use it as a
+  reference/upper bound only.
+- `true` → **conv student**: LoRA on the 88 temporal Conv3d of the
+  unflipped teacher (`attention_lora_targets` is an empty hook for adding
+  temporal attention later), loss = ε-MSE + `mirror_loss_weight` ·
+  MSE to `flip(ε_teacher(flip(x_t)))`. Optional `flip_blocks` flips some
+  blocks before training; it's saved in the checkpoint, re-applied at
+  inference, and any other flip on a trained student is refused (it would
+  double-reverse time). Imports from: `torch`, `diffusers`, `data.py`.
+  Runs: Kaggle (training), Colab (comparison).
 
 ### `scripts/` — command-line entry points (all fully implemented infra)
 
@@ -184,15 +203,20 @@ thread so requests don't block on GPU work. Imports from: `revt2v.infer`,
 
 ### `configs/` — fully implemented YAML, one TODO field each
 
-`default.yaml` documents every config key; `baseline.yaml`,
-`attn_rotation.yaml`, `motion_prior.yaml` are self-contained per-method
-copies (no inheritance — simpler to read, small enough not to matter) that
-`scripts/train.py`/`evaluate.py` load via `--config`. Each has one field
-*you* fill in: `target_modules` (the temporal attention layer names you
-find via a scratch script, e.g. `p.py`). Scope it to temporal attention
+Two self-contained configs, one per method in use: `attn_rotation.yaml`
+(also the `--config` default) and `conv_mirror.yaml`, loaded by
+`scripts/train.py`/`evaluate.py` via `--config`. (The earlier `baseline`
+and `motion_prior` methods and their configs were removed; they're in git
+history.)
+`attn_rotation.yaml`'s `target_modules` names the temporal attention layers
+to give LoRA, scoped to temporal attention
 only (e.g. a regex like `r".*temp_attentions.*\.(to_q|to_k|to_v|to_out\.0)$"`)
 — `revt2v.student.build_student` warns at runtime if a match falls outside
 `temp_attentions`. Read by: `revt2v.utils.load_config`.
+`conv_mirror.yaml` leaves `target_modules: null` (filled in by
+`ConvMirror.lora_targets`) and adds `use_trained_weights`, `flip_blocks`,
+`mirror_loss_weight`, and `hf_subfolder: conv_mirror` (Hub folder for its
+checkpoint; configs without it keep using the root `latest.pt`).
 
 ### `prompts/` — fully implemented data files
 
@@ -211,6 +235,13 @@ animals so training and evaluation see varied motion types. Read by:
 - `colab_test.ipynb` — clone/pull, install, load `HF_TOKEN` from Colab
   userdata, start `serve.py` in the background, open a `cloudflared`
   tunnel, hit the API with `requests`. Runs: Colab.
+- `compare_methods.ipynb` — clone/pull, install, `HF_TOKEN` from Colab
+  secrets, load `MethodBank` once; exactness checks (U-Net level and
+  `conv_oracle` vs `matched_target` video level); then for each prompt and
+  seed, every method from the same noise, saved as mp4s + side-by-side,
+  scored vs the matched target (flow direction cosine, motion ratio with
+  < 0.3 = frozen, mean pixel diff), summary table, frame sheets, zip.
+  Runs: Colab (GPU).
 
 There's no dedicated scratch notebook — free exploration (load the teacher,
 print temporal attention layer names, sanity-check the flip-latents-vs-
@@ -223,7 +254,11 @@ Three files exercising the pure-math and small-toy-module parts of the
 scaffold, so you get fast feedback without needing a GPU or downloading
 the teacher: `test_data.py` (latent flip + dataset item shapes),
 `test_attn_rotation.py` (rotated attention vs. a from-scratch reference, on
-a tiny real `diffusers.Attention` layer with random weights), `test_student.py`
+a tiny real `diffusers.Attention` layer with random weights),
+`test_conv_mirror.py` (Conv3d discovery by class, flip-twice = identity,
+exact per-block flips, toy time-mirror, double-flip guard; plus one GPU
+test, skipped without CUDA, checking the real U-Net's
+`unet_flipped(z) == flip(unet(flip(z)))` and printing the max diff), `test_student.py`
 (only LoRA parameters get `requires_grad=True`, on a tiny toy U-Net). Run with
 `pytest` from the repo root — as of the scaffold's initial state, every one
 of these fails with `NotImplementedError` until you fill in the
@@ -312,7 +347,7 @@ regenerated output, not something to commit.
 | What | Where | Format | Shape |
 |---|---|---|---|
 | Latent dataset shard | `data/latents/*.pt` (local), mirrored to an HF `dataset` repo | dict via `torch.save` | `latents`/`reversed_latents`: `(4, F, 32, 32)` fp16; `prompt_embeds`/`negative_prompt_embeds`: `(77, 1024)` fp16 |
-| Training checkpoint | `results/checkpoints/<method>/latest.pt` (local), mirrored to an HF `model` repo | dict via `torch.save`: `{"step", "model", "optimizer", "metadata"}` | `model` is a LoRA-only state dict (megabytes, not gigabytes) |
+| Training checkpoint | `results/checkpoints/<method>/latest.pt` (local), mirrored to an HF `model` repo (root `latest.pt`, or `<hf_subfolder>/latest.pt`, e.g. `conv_mirror/latest.pt`) | dict via `torch.save`: `{"step", "model", "optimizer", "metadata"}` | `model` is a LoRA-only state dict (megabytes, not gigabytes) |
 | Evaluation output | `results/<method>/` | `NNN_compare.mp4` side-by-side videos + `metrics.json` | videos: `(F, H, 2W, C)` uint8 (student left, reversed teacher right) |
 | Served video | `results/serve/<job_id>.mp4` | mp4, served at `/videos/<job_id>.mp4` | `(F, H, W, C)` uint8 |
 

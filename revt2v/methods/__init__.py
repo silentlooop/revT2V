@@ -1,13 +1,11 @@
 """Expose the available distillation methods and their shared interface."""
 
 from .attn_rotation import AttentionRotation
-from .baseline import Baseline
-from .motion_prior import MotionPrior
+from .conv_mirror import ConvMirror
 
 METHODS = {
-    "baseline": Baseline,
     "attn_rotation": AttentionRotation,
-    "motion_prior": MotionPrior,
+    "conv_mirror": ConvMirror,
 }
 
-__all__ = ["AttentionRotation", "Baseline", "MotionPrior", "METHODS"]
+__all__ = ["AttentionRotation", "ConvMirror", "METHODS"]

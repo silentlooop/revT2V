@@ -6,7 +6,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, PeftModel, get_peft_model
 from peft import get_peft_model_state_dict
 from peft import set_peft_model_state_dict
 
@@ -17,6 +17,7 @@ def build_student(
     lora_alpha: int = 16,
     lora_dropout: float = 0.0,
     target_modules: Optional[Union[str, List[str]]] = None,
+    adapter_name: str = "default",
 ):
     """Wrap the teacher U-Net with trainable LoRA adapters.
 
@@ -25,6 +26,10 @@ def build_student(
     cross-attention layers, not just temporal ones. Scope it to temporal
     attention only, e.g. a regex string such as
     ``r".*temp_attentions.*\\.(to_q|to_k|to_v|to_out\\.0)$"``.
+
+    If the U-Net is already peft-wrapped (pass the PeftModel as
+    `teacher_pipeline.unet`), the adapter is added alongside the existing
+    ones under `adapter_name` instead — see `infer.MethodBank`.
     """
 
     if not target_modules:
@@ -40,7 +45,11 @@ def build_student(
         lora_dropout=lora_dropout,
         target_modules=target_modules,
     )
-    student = get_peft_model(teacher_pipeline.unet, config)
+    if isinstance(teacher_pipeline.unet, PeftModel):
+        student = teacher_pipeline.unet
+        student.add_adapter(adapter_name, config)
+    else:
+        student = get_peft_model(teacher_pipeline.unet, config, adapter_name=adapter_name)
 
     non_temporal = sorted(
         name
@@ -82,7 +91,7 @@ def lora_state_dict(student) -> Dict[str, Any]:
     return get_peft_model_state_dict(student)
 
 
-def load_lora_state_dict(student, state_dict: Dict[str, Any]) -> None:
+def load_lora_state_dict(student, state_dict: Dict[str, Any], adapter_name: str = "default") -> None:
     """Load saved LoRA weights into the student model."""
 
-    set_peft_model_state_dict(student, state_dict)
+    set_peft_model_state_dict(student, state_dict, adapter_name=adapter_name)

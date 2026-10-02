@@ -24,7 +24,7 @@ RESULTS_DIR = Path(os.environ.get("REVT2V_RESULTS_DIR", default_results_dir())) 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 CHECKPOINT_ROOT = Path(os.environ.get("REVT2V_CHECKPOINT_DIR", default_checkpoint_dir()))
 HF_REPO = os.environ.get("REVT2V_HF_REPO")  # e.g. "username/revt2v-checkpoints"
-DEFAULT_METHOD = os.environ.get("REVT2V_DEFAULT_METHOD", "baseline")
+DEFAULT_METHOD = os.environ.get("REVT2V_DEFAULT_METHOD", "attn_rotation")
 
 
 class GenerateRequest(BaseModel):

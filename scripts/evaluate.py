@@ -166,7 +166,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config, args.overrides)
-    method_name = args.method or config.get("method", "baseline")
+    method_name = args.method or config.get("method", "attn_rotation")
     seed_everything(config.get("seed", 42))
 
     checkpoint_dir = args.checkpoint_dir or Path(config.get("checkpoint_dir", default_checkpoint_dir())) / method_name

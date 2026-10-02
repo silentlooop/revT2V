@@ -5,7 +5,9 @@ IE 643 course project: distilling a video diffusion model to generate
 
 - Teacher: [`ali-vilab/text-to-video-ms-1.7b`](https://huggingface.co/ali-vilab/text-to-video-ms-1.7b) (ModelScope T2V), frozen.
 - Student: the same U-Net + a LoRA adapter on its temporal attention layers, trained on reverse-time targets.
-- Three methods, selected via `--method`: `baseline`, `attn_rotation` (primary — Wang et al., *Generative Inbetweening*, ICLR 2025), `motion_prior` (secondary — Jeon et al., *Motion Prior Distillation*, ICLR 2026).
+- Two methods, selected via `--method`: `attn_rotation` (Wang et al., *Generative Inbetweening*, ICLR 2025) and `conv_mirror` (temporal-conv mirroring, see below).
+- `conv_mirror` has two modes (`use_trained_weights`): the **conv oracle** flips every temporal Conv3d kernel in time with no training, which makes the U-Net an exact time-mirror of the teacher. It is therefore equivalent to reversing the teacher's output: a reference/upper bound, **not** a learned method. The **conv student** trains LoRA on those convs instead (`python scripts/train.py --config configs/conv_mirror.yaml --hf-repo <you>/revt2v-ckpt`; checkpoint goes to `conv_mirror/latest.pt` on the Hub).
+- `notebooks/compare_methods.ipynb` (Colab) runs teacher / matched target / `attn_rotation` / conv oracle / conv student from the same noise and scores them.
 
 New to this repo? Start with **[STRUCTURE.md](STRUCTURE.md)** (what everything is) and **[LEARNING.md](LEARNING.md)** (what order to implement things in).
 
@@ -41,7 +43,7 @@ revt2v/       library code — teacher, student, data, infer, methods/
 scripts/      CLI entry points — build_dataset, train, evaluate, serve
 configs/      one YAML per method + shared defaults
 prompts/      train.txt / test.txt prompt lists (held-out, no overlap)
-notebooks/    kaggle_train, colab_test
+notebooks/    kaggle_train, colab_test, compare_methods
 tests/        CPU-only unit tests, no model download
 results/      generated videos, eval metrics (gitignored)
 ```
