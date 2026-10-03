@@ -29,6 +29,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# scripts/evaluate.py: FVD (scipy) and optical flow (OpenCV). VBench is
+# installed separately with --no-deps — see notebooks/compare_methods.ipynb.
+eval = ["scipy>=1.10", "opencv-python-headless>=4.8"]
 
 [tool.setuptools.packages.find]
 include = ["revt2v*"]
