@@ -64,3 +64,28 @@ def test_latent_dataset_item_shapes(tmp_path):
 def test_latent_dataset_raises_on_empty_dir(tmp_path):
     with pytest.raises(FileNotFoundError):
         LatentDataset(tmp_path)
+
+
+def test_latent_dataset_filters_by_manifest_motion_score(tmp_path):
+    import json
+
+    entries = [
+        {"shard": "00000_s0_aaaaaaaa.pt", "motion_score": 0.1, "kept": True},
+        {"shard": "00000_s1_aaaaaaaa.pt", "motion_score": 0.9, "kept": True},
+        {"shard": "00001_s0_bbbbbbbb.pt", "motion_score": 0.05, "kept": False},  # never saved
+    ]
+    for entry in entries[:2]:
+        torch.save(_make_record(), tmp_path / entry["shard"])
+    (tmp_path / "manifest.jsonl").write_text("".join(json.dumps(e) + "\n" for e in entries))
+
+    assert len(LatentDataset(tmp_path)) == 2
+    filtered = LatentDataset(tmp_path, min_motion_score=0.5)
+    assert [f.name for f in filtered.files] == ["00000_s1_aaaaaaaa.pt"]
+    with pytest.raises(FileNotFoundError):
+        LatentDataset(tmp_path, min_motion_score=5.0)
+
+
+def test_min_motion_score_needs_a_manifest(tmp_path):
+    torch.save(_make_record(), tmp_path / "00000_aaaaaaaa.pt")
+    with pytest.raises(ValueError, match="manifest"):
+        LatentDataset(tmp_path, min_motion_score=0.1)

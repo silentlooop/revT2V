@@ -450,6 +450,36 @@ def push_file_to_hub(
     )
 
 
+def push_files_to_hub(
+    files: Iterable[tuple],
+    repo_id: str,
+    repo_type: str = "model",
+    token: Optional[str] = None,
+    private: bool = True,
+    commit_message: str = "Upload files",
+) -> None:
+    """Upload several ``(local_path, path_in_repo)`` pairs in ONE commit.
+    `scripts/build_dataset.py` batches shards + manifest this way to stay
+    well under the Hub's per-repo commit rate limit."""
+    from huggingface_hub import CommitOperationAdd, HfApi, create_repo
+
+    operations = [
+        CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(local_path))
+        for local_path, path_in_repo in files
+    ]
+    if not operations:
+        return
+    token = token or get_hf_token()
+    create_repo(repo_id, repo_type=repo_type, private=private, exist_ok=True, token=token)
+    HfApi().create_commit(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        operations=operations,
+        commit_message=commit_message,
+        token=token,
+    )
+
+
 def list_hub_files(repo_id: str, repo_type: str = "dataset", token: Optional[str] = None) -> list:
     """List filenames present in a Hugging Face Hub repo. Used to skip
     already-uploaded dataset shards when resuming `build_dataset.py`.

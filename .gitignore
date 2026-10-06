@@ -45,6 +45,4 @@ wandb/
 .vscode/
 .idea/
 
-# Kaggle / Colab local mounts
-/kaggle/
-/content/
+

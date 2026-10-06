@@ -25,10 +25,10 @@ def _resume_checkpoint(
 ) -> Optional[dict]:
     """Load a method's checkpoint from `<hub_subfolder or method>/latest.pt`,
     falling back to the original root `latest.pt` for methods trained before
-    per-method folders existed (conv_mirror never used the root). Raises if
+    per-method folders existed (only attn_rotation ever used the root). Raises if
     the checkpoint found was saved by a different method."""
     candidates = [hub_subfolder or method_name]
-    if method_name != "conv_mirror":
+    if method_name == "attn_rotation":
         candidates.append(None)
 
     for subfolder in candidates:
@@ -199,7 +199,7 @@ class MethodBank:
     """Every inference method on ONE shared U-Net (fits a 16 GB T4).
 
     Methods: "teacher", "conv_oracle", and, if their checkpoints exist,
-    "attn_rotation" and "conv_student". Switching enables/disables LoRA
+    "attn_rotation", "conv_student", "conv_lora" and "attn_lora". Switching enables/disables LoRA
     adapters, swaps attention processors, and flips/unflips temporal conv
     kernels; the clean teacher state is restored after every call.
     """
@@ -221,9 +221,14 @@ class MethodBank:
         self.methods = ["teacher", "conv_oracle"]
 
     def load_adapter(self, method: str, hub_subfolder: Optional[str] = None) -> bool:
-        """Load "attn_rotation" or "conv_student" as a named LoRA adapter.
-        Returns False (and skips it) if no checkpoint exists."""
-        training_method = {"attn_rotation": "attn_rotation", "conv_student": "conv_mirror"}[method]
+        """Load "attn_rotation", "conv_student", "conv_lora" or "attn_lora" as
+        a named LoRA adapter. Returns False (and skips it) if no checkpoint exists."""
+        training_method = {
+            "attn_rotation": "attn_rotation",
+            "conv_student": "conv_mirror",
+            "conv_lora": "conv_lora",
+            "attn_lora": "attn_lora",
+        }[method]
         payload = _resume_checkpoint(
             training_method,
             f"{self.checkpoint_root}/{training_method}",

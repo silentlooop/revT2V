@@ -1,0 +1,62 @@
+# Main method (TA-approved): LoRA on the UNflipped teacher, no kernel flips,
+# no attention rotation. Targets: all 88 temporal Conv3d (inside
+# TemporalConvLayer) + to_v/to_out.0 of attn1/attn2 in every
+# TransformerTemporalModel incl. transformer_in (68 Linears). See
+# revt2v/methods/conv_lora.py. Run with:
+#   python scripts/train.py --config configs/conv_lora.yaml
+#
+# Identical to configs/attn_lora.yaml except method / hf_subfolder (the
+# baseline gets the 68 attention Linears only).
+
+seed: 42
+method: conv_lora
+
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+# The existing dataset: 154 shards at the root of hf_dataset_repo.
+data_root: data/latents
+checkpoint_dir: results/checkpoints
+
+# Shared rank for every LoRA target; scripts/conv_rank_check.py recommends
+# one from the temporal convs. Override per run with --set lora_rank=32
+# (keep lora_alpha = lora_rank so the LoRA scale stays 1).
+lora_rank: 16
+lora_alpha: 16
+lora_dropout: 0.0
+# null -> the method's lora_targets() fills in the names (asserted counts).
+# The resolved list is saved in the checkpoint config.
+target_modules: null
+
+# lambda in eps-MSE + lambda * MSE(eps_student(x_t), flip(eps_teacher(flip(x_t)))).
+mirror_loss_weight: 1.0
+
+# Effective batch 8. The mirror term adds a teacher forward per micro-batch;
+# 16 accumulation steps would be an estimated ~10 h per run on a T4; 8 halves it.
+batch_size: 1
+learning_rate: 0.0001
+num_steps: 1000
+grad_accum_steps: 8
+uncond_prob: 0.1
+
+hf_repo: silentlooop/revt2v-ckpt
+hf_dataset_repo: silentlooop/revt2v-data
+# Checkpoints go to <hf_repo>/conv_lora/latest.pt, never the root latest.pt.
+hf_subfolder: conv_lora
+save_every_steps: 100
+push_every_seconds: 600.0
+
+log_every_steps: 10
+sample_every_steps: 250
+sample_inference_steps: 25
+sample_seed: 0
+# Held-out test prompts, used only to watch progress (never trained on).
+sample_prompts:
+  - "white smoke rising from a burning incense stick, black background"
+  - "orange juice being poured into a glass, close-up"
+
+gradient_checkpointing: false

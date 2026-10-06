@@ -561,7 +561,7 @@ def main() -> None:
         prompts = [line.strip() for line in args.prompts.read_text().splitlines() if line.strip()]
         prompts = prompts[: args.limit] if args.limit else prompts
         bank = MethodBank(hf_repo_id=args.hf_repo, checkpoint_root=args.checkpoint_root)
-        for method in ("attn_rotation", "conv_student"):
+        for method in ("attn_rotation", "conv_student", "conv_lora", "attn_lora"):
             try:
                 bank.load_adapter(method)
             except Exception as exc:  # noqa: BLE001 - missing/mismatched checkpoint

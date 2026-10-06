@@ -75,6 +75,7 @@ def generate_forward_video(
     num_inference_steps: int = 50,
     guidance_scale: float = 9.0,
     seed: Optional[int] = None,
+    negative_prompt: Optional[str] = None,
 ) -> dict:
     """Generate a forward-time video and return its latents and decoded frames."""
        
@@ -85,6 +86,7 @@ def generate_forward_video(
     with torch.no_grad():
         result = pipeline(
             prompt,
+            negative_prompt=negative_prompt,
             num_frames=num_frames,
             height=height,
             width=width,

@@ -36,12 +36,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("train")
 
 
-def _ensure_dataset(data_root: Path, hf_dataset_repo: str | None) -> None:
-    """Pull every shard from `hf_dataset_repo` if `data_root` has none locally.
+def _ensure_dataset(data_root: Path, hf_dataset_repo: str | None, data_version: str | None = None) -> None:
+    """Pull the shards (and manifest) of `data_version` from `hf_dataset_repo`
+    if `data_root` has none locally.
 
-    Mirrors `scripts/build_dataset.py`'s per-shard pull, for the case where a
-    Kaggle session was wiped and `build_dataset.py` wasn't re-run before
-    `train.py` this time.
+    `data_version` (e.g. "v2") is the Hub folder `scripts/build_dataset.py`
+    wrote to; None means the original shards at the repo root (files in
+    version folders are never mixed in). For the case where a Kaggle session
+    was wiped and `build_dataset.py` wasn't re-run before `train.py`.
     """
     if data_root.exists() and any(data_root.glob("*.pt")):
         return
@@ -50,12 +52,40 @@ def _ensure_dataset(data_root: Path, hf_dataset_repo: str | None) -> None:
 
     from huggingface_hub import hf_hub_download
 
+    prefix = f"{data_version.strip('/')}/" if data_version else ""
+    wanted = [
+        f
+        for f in list_hub_files(hf_dataset_repo, repo_type="dataset")
+        if f.startswith(prefix)
+        and "/" not in f[len(prefix):]
+        and (f.endswith(".pt") or f.endswith(data.MANIFEST_NAME))
+    ]
     data_root.mkdir(parents=True, exist_ok=True)
-    shard_names = [f for f in list_hub_files(hf_dataset_repo, repo_type="dataset") if f.endswith(".pt")]
-    logger.info("data_root is empty; pulling %d shards from %s", len(shard_names), hf_dataset_repo)
-    for name in shard_names:
+    logger.info("data_root is empty; pulling %d files from %s/%s", len(wanted), hf_dataset_repo, prefix or "<root>")
+    for name in tqdm(wanted, desc="pulling dataset"):
         downloaded = hf_hub_download(repo_id=hf_dataset_repo, filename=name, repo_type="dataset")
-        (data_root / name).write_bytes(Path(downloaded).read_bytes())
+        (data_root / name[len(prefix):]).write_bytes(Path(downloaded).read_bytes())
+
+
+def _log_lora_layers(student) -> None:
+    """Log how many Conv3d/Linear layers got LoRA and the trainable param count."""
+    from peft.tuners.lora import LoraLayer
+
+    kinds = {}
+    for module in student.modules():
+        if isinstance(module, LoraLayer):
+            kind = type(module.get_base_layer()).__name__
+            kinds[kind] = kinds.get(kind, 0) + 1
+    trainable = sum(p.numel() for p in student.parameters() if p.requires_grad)
+    dtypes = sorted({str(p.dtype) for p in student.parameters() if p.requires_grad})
+    logger.info(
+        "LoRA-wrapped layers: Conv3d=%d Linear=%d (all: %s) | trainable params=%d (%s)",
+        kinds.get("Conv3d", 0),
+        kinds.get("Linear", 0),
+        kinds,
+        trainable,
+        ", ".join(dtypes),
+    )
 
 
 def _enable_gradient_checkpointing(unet) -> None:
@@ -71,7 +101,7 @@ def _enable_gradient_checkpointing(unet) -> None:
         )
 
 
-def _run_sampling(pipeline, student, config, step, method_name, hf_repo, results_dir, device) -> None:
+def _run_sampling(pipeline, student, config, step, sample_folder, hf_repo, results_dir, device) -> None:
     """Generate config['sample_prompts'] with the CURRENT student (rotation +
     LoRA active, CFG with uncond) and upload them, then restore train mode."""
     prompts = config.get("sample_prompts") or []
@@ -94,13 +124,13 @@ def _run_sampling(pipeline, student, config, step, method_name, hf_repo, results
                     seed=config.get("sample_seed", 0),
                     device=device,
                 )
-            video_path = results_dir / method_name / "samples" / f"step{step:06d}_prompt{i}.mp4"
+            video_path = results_dir / sample_folder / "samples" / f"step{step:06d}_prompt{i}.mp4"
             save_video(result["video"], video_path)
             if hf_repo:
                 push_file_to_hub(
                     video_path,
                     hf_repo,
-                    f"samples/{method_name}/step{step:06d}_prompt{i}.mp4",
+                    f"samples/{sample_folder}/step{step:06d}_prompt{i}.mp4",
                     token=get_hf_token(),
                 )
     finally:
@@ -119,6 +149,7 @@ def main() -> None:
     parser.add_argument("--log-every-steps", type=int, default=None)
     parser.add_argument("--save-every-steps", type=int, default=None)
     parser.add_argument("--max-steps", type=int, default=None, help="Overrides config's num_steps, for smoke tests")
+    parser.add_argument("--hf-subfolder", type=str, default=None, help="Overrides config's hf_subfolder (e.g. smoke_test/conv_lora)")
     parser.add_argument("--fresh", action="store_true", help="Ignore any existing checkpoint and start from step 0")
     args = parser.parse_args()
 
@@ -134,10 +165,10 @@ def main() -> None:
     hf_dataset_repo = args.hf_dataset_repo or config.get("hf_dataset_repo")
     # None -> checkpoint pushed to the HF repo root (original layout); set
     # per method so different methods never overwrite each other's latest.pt.
-    hf_subfolder = config.get("hf_subfolder")
+    hf_subfolder = args.hf_subfolder or config.get("hf_subfolder")
+    if method_name != "attn_rotation" and not (hf_subfolder or "").strip("/"):
+        raise ValueError(f"{method_name} must set hf_subfolder so it never overwrites the root (attn_rotation) checkpoint")
     if method_name == "conv_mirror":
-        if not hf_subfolder:
-            raise ValueError("conv_mirror must set hf_subfolder so it never overwrites the root (attn_rotation) checkpoint")
         if not config.get("use_trained_weights", True):
             raise ValueError("use_trained_weights=false is the conv oracle (flipped teacher); it needs no training")
     push_every_seconds = args.push_every_seconds if args.push_every_seconds is not None else config.get("push_every_seconds", 600.0)
@@ -151,7 +182,7 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Method=%s device=%s data_root=%s", method_name, device, data_root)
 
-    _ensure_dataset(data_root, hf_dataset_repo)
+    _ensure_dataset(data_root, hf_dataset_repo, config.get("data_version"))
 
     # --- Model setup (each call below is a scaffolded function you implement) ---
     pipeline = teacher.load_teacher(device=device)
@@ -175,6 +206,7 @@ def main() -> None:
         lora_dropout=config.get("lora_dropout", 0.0),
         target_modules=config.get("target_modules"),
     )
+    _log_lora_layers(student)
     student = method.apply(
         student,
         rotate_layers=config.get("rotate_layers", "none"),
@@ -206,7 +238,8 @@ def main() -> None:
         logger.info("No checkpoint found (or --fresh passed), starting from scratch")
 
     # --- Data ---
-    dataset = data.LatentDataset(data_root)
+    dataset = data.LatentDataset(data_root, min_motion_score=config.get("min_motion_score"))
+    logger.info("Dataset: %d clips from %s (min_motion_score=%s)", len(dataset), data_root, config.get("min_motion_score"))
     loader = DataLoader(dataset, batch_size=config.get("batch_size", 1), shuffle=True)
     batches = itertools.cycle(loader)
 
@@ -296,7 +329,8 @@ def main() -> None:
             )
 
         if sample_every_steps and (step % sample_every_steps == 0 or step == num_steps - 1):
-            _run_sampling(pipeline, student, config, step, method_name, hf_repo, results_dir, device)
+            # Samples go under hf_subfolder too, so a smoke test never mixes into a real run's.
+            _run_sampling(pipeline, student, config, step, hf_subfolder or method_name, hf_repo, results_dir, device)
 
     logger.info("Training complete: %d steps, checkpoint at %s", num_steps, ckpt.local_path)
 

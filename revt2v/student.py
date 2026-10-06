@@ -51,10 +51,18 @@ def build_student(
     else:
         student = get_peft_model(teacher_pipeline.unet, config, adapter_name=adapter_name)
 
+    # LoRA params in fp32 even on an fp16 U-Net (peft casts the LoRA
+    # branch's input to the adapter dtype, so its math runs in fp32 too).
+    for name, param in student.named_parameters():
+        if "lora_" in name and f".{adapter_name}." in f"{name}.":
+            param.data = param.data.float()
+
+    # transformer_in is ModelScope's first temporal transformer, so it counts
+    # as temporal even though its name has no "temp".
     non_temporal = sorted(
         name
         for name in student.base_model.targeted_module_names
-        if "temp" not in name.lower()
+        if "temp" not in name.lower() and not name.startswith("transformer_in.")
     )
     if non_temporal:
         warnings.warn(
