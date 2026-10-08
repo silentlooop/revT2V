@@ -1,0 +1,233 @@
+@import 'tailwindcss';
+
+/* ============ DESIGN TOKENS (single source of truth) ============ */
+@theme {
+  /* nuke Tailwind defaults so nothing off-palette can sneak in */
+  --color-*: initial;
+  --shadow-*: initial;
+  --drop-shadow-*: initial;
+  --inset-shadow-*: initial;
+  --font-*: initial;
+
+  /* palette */
+  --color-paper: #f1efea;
+  --color-paper-2: #f7f6f2;
+  --color-white: #fdfcfa;
+  --color-ink: #1f1f24;
+  --color-ink-2: #46464e;
+  --color-mute: #6a6a72;
+  --color-line: #3a3a42;
+  --color-rule: #ebe8e1;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  /* accent */
+  --color-accent: #3646d4;
+  --color-accent-ink: #2836b0;
+  --color-accent-soft: #bcc6f3;
+  --color-accent-wash: #e9ecfa;
+  --color-on-accent: #ffffff;
+  --color-shadow: #d3cfc5;
+
+  /* win98 chrome */
+  --color-win: #c3c3c3;
+  --color-win-light: #ffffff;
+  --color-win-dark: #7b7b7b;
+  --color-win-darker: #0a0a0a;
+
+  /* signal */
+  --color-good: #157a3c;
+  --color-bad: #c0262d;
+
+  /* hard shadows only — no blur, ever */
+  --shadow-hard-xs: 2px 2px 0 0 var(--color-shadow);
+  --shadow-hard: 4px 4px 0 0 var(--color-shadow);
+  --shadow-hard-lg: 8px 8px 0 0 var(--color-shadow);
+  --shadow-hard-accent: 5px 5px 0 0 var(--color-accent);
+  --shadow-cutout: 0 0 0 4px var(--color-white), 7px 7px 0 4px var(--color-shadow);
+  --shadow-cutout-sm: 0 0 0 3px var(--color-white), 4px 4px 0 3px var(--color-shadow);
+  --shadow-win-out: inset -1px -1px 0 var(--color-win-darker), inset 1px 1px 0 var(--color-win-light),
+    inset -2px -2px 0 var(--color-win-dark), inset 2px 2px 0 #dfdfdf;
+  --shadow-win-in: inset -1px -1px 0 var(--color-win-light), inset 1px 1px 0 var(--color-win-dark),
+    inset -2px -2px 0 #dfdfdf, inset 2px 2px 0 var(--color-win-darker);
+
+  /* type */
+  --font-display: 'Archivo', 'Arial Narrow', sans-serif;
+  --font-sans: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif;
+  --font-pixel: 'Silkscreen', monospace;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+  --font-win: Tahoma, 'MS Sans Serif', Verdana, sans-serif;
+
+  --text-mega: clamp(4.5rem, 14vw, 13rem);
+  --text-mega--line-height: 0.82;
+  --text-huge: clamp(3rem, 8vw, 7.5rem);
+  --text-huge--line-height: 0.85;
+
+  --tracking-label: 0.22em;
+
+  --animate-ticker: ticker 38s linear infinite;
+  --animate-blink: blink 1s steps(2) infinite;
+  --animate-hourglass: hourglass 1.6s steps(4) infinite;
+
+  @keyframes ticker {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  @keyframes hourglass {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+/* softer line colour for borders drawn in ink (inside the utilities layer so hover: variants still win) */
+@layer utilities {
+  .border-ink {
+    border-color: var(--color-line);
+  }
+}
+
+/* ============ UTILITIES THAT TAILWIND CAN'T EXPRESS CLEANLY ============ */
+
+@utility condensed {
+  font-family: var(--font-display);
+  font-stretch: 62%;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+
+@utility outline-text {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--color-ink);
+  font-family: var(--font-display);
+  font-stretch: 75%;
+  font-weight: 500;
+}
+
+@utility outline-text-accent {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--color-accent);
+  font-family: var(--font-display);
+  font-stretch: 75%;
+  font-weight: 500;
+}
+
+@utility label {
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+@utility bg-grid {
+  background-color: var(--color-paper-2);
+  background-image: linear-gradient(var(--color-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+@utility bg-grid-fine {
+  background-color: var(--color-paper-2);
+  background-image: linear-gradient(var(--color-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+@utility bg-photocopy {
+  background-color: var(--color-paper);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@utility bg-halftone {
+  background-image: radial-gradient(var(--color-accent) 1.1px, transparent 1.3px);
+  background-size: 7px 7px;
+}
+
+@utility bg-halftone-ink {
+  background-image: radial-gradient(var(--color-ink) 1px, transparent 1.2px);
+  background-size: 5px 5px;
+}
+
+@utility bg-stripes {
+  background-image: repeating-linear-gradient(-45deg, var(--color-ink) 0 2px, transparent 2px 7px);
+}
+
+@utility bg-stripes-soft {
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--color-ink) 7%, transparent) 0 2px, transparent 2px 9px);
+}
+
+@utility metallic {
+  background: radial-gradient(circle at 35% 30%, #fbfbfb 0%, #dedede 45%, #b9b9b9 100%);
+}
+
+@utility pixelated {
+  image-rendering: pixelated;
+}
+
+/* ============ BASE ============ */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 64px;
+  }
+  body {
+    @apply bg-grid font-sans text-ink antialiased;
+    min-height: 100vh;
+  }
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+  body {
+    font-weight: 420;
+    letter-spacing: 0.003em;
+  }
+  p {
+    line-height: 1.6;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* KaTeX tweaks */
+.katex {
+  font-size: 1.05em;
+}
+.katex-display {
+  margin: 0.4em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+
+/* thin custom scrollbars for horizontal strips */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink) transparent;
+}

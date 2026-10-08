@@ -79,7 +79,7 @@ def mirror_loss(
 class AttnLoRA:
     """Baseline: LoRA on temporal attention to_v/to_out.0 only."""
 
-    def lora_targets(self, unet: Any) -> List[str]:
+    def lora_targets(self, unet: Any, rotate_layers: Any = None) -> List[str]:
         targets = temporal_attention_lora_targets(unet)
         if len(targets) != TEMPORAL_ATTN_LINEAR_COUNT:
             raise ValueError(
@@ -120,7 +120,7 @@ class AttnLoRA:
 class ConvLoRA(AttnLoRA):
     """Main method: LoRA on the 88 temporal Conv3d + the 68 temporal attention Linears."""
 
-    def lora_targets(self, unet: Any) -> List[str]:
+    def lora_targets(self, unet: Any, rotate_layers: Any = None) -> List[str]:
         require_conv3d_lora()
         convs = conv_lora_targets(unet)
         if len(convs) != TEMPORAL_CONV_COUNT:

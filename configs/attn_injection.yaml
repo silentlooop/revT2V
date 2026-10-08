@@ -1,0 +1,70 @@
+# Attention injection: capture the base U-Net's own attention on the
+# time-flipped latent (stock attention, LoRA off, no_grad), inject it
+# (rotated 180 degrees) into the real pass against that pass's own
+# to_v/to_out.0 -- which is what gets LoRA here, exactly like attn_lora's
+# target modules. See revt2v/methods/attn_injection.py for why this is a
+# no-op at transformer_in but a genuine effect at rotate_layers="up_attn1"
+# (downstream of direction-aware temporal convs). Run with:
+#   python scripts/train.py --config configs/attn_injection.yaml
+
+seed: 42
+method: attn_injection
+
+model_id: ali-vilab/text-to-video-ms-1.7b
+num_frames: 16
+height: 256
+width: 256
+num_inference_steps: 50
+guidance_scale: 9.0
+
+# The new dataset (built from the current prompts/train.txt): shards +
+# manifest.jsonl under dataset2/ in hf_dataset_repo. The original 154-shard
+# dataset lives at dataset1/ but isn't used here.
+data_root: data/latents
+data_version: dataset2
+checkpoint_dir: results/checkpoints
+
+# Which temporal self-attention layers receive an injected map (and so get
+# LoRA on to_v/to_out.0): "up_attn1" (9), "up_both" (attn1+attn2, up_blocks
+# only), "all" (34, every TransformerTemporalModel incl. transformer_in --
+# note transformer_in's own injection is a no-op, see the module docstring).
+rotate_layers: up_attn1
+
+# Shared rank for every LoRA target. Override per run with --set lora_rank=32
+# (keep lora_alpha = lora_rank so the LoRA scale stays 1).
+lora_rank: 16
+lora_alpha: 16
+lora_dropout: 0.0
+# null -> the method's lora_targets() fills in the names (asserted counts).
+# The resolved list is saved in the checkpoint config.
+target_modules: null
+
+# lambda in eps-MSE + lambda * MSE(eps_student(x_t), flip(capture_pass_output)).
+# The capture pass already ran (for the injected map), so this term is free.
+mirror_loss_weight: 1.0
+
+# Effective batch 8. Expect ~30-40% slower steps than attn_lora: every
+# micro-batch runs an extra no-grad capture forward pass.
+batch_size: 1
+learning_rate: 0.0001
+num_steps: 1000
+grad_accum_steps: 8
+uncond_prob: 0.1
+
+hf_repo: silentlooop/revt2v-ckpt
+hf_dataset_repo: silentlooop/revt2v-data
+# Checkpoints go to <hf_repo>/attn_injection/latest.pt, never the root latest.pt.
+hf_subfolder: attn_injection
+save_every_steps: 100
+push_every_seconds: 600.0
+
+log_every_steps: 10
+sample_every_steps: 250
+sample_inference_steps: 25
+sample_seed: 0
+# Held-out test prompts, used only to watch progress (never trained on).
+sample_prompts:
+  - "white smoke rising from a burning incense stick, black background"
+  - "orange juice being poured into a glass, close-up"
+
+gradient_checkpointing: false

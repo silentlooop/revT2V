@@ -16,8 +16,11 @@ width: 256
 num_inference_steps: 50
 guidance_scale: 9.0
 
-# The existing dataset: 154 shards at the root of hf_dataset_repo.
+# The new dataset (built from the current prompts/train.txt): shards +
+# manifest.jsonl under dataset2/ in hf_dataset_repo. The original 154-shard
+# dataset lives at dataset1/ but isn't used here.
 data_root: data/latents
+data_version: dataset2
 checkpoint_dir: results/checkpoints
 
 # Shared rank for every LoRA target; scripts/conv_rank_check.py recommends

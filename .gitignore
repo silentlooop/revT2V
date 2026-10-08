@@ -45,4 +45,8 @@ wandb/
 .vscode/
 .idea/
 
+# client/ (Vite build artifacts and deps, reinstalled with npm install)
+node_modules/
+*.tsbuildinfo
+
 

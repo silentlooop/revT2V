@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import torch
 
 from . import student as student_module
 from . import teacher as teacher_module
 from .data import flip_latents_time_axis
-from .methods import METHODS
-from .methods.attn_rotation import AttentionRotation
+from .methods import METHODS, attn_injection
 from .methods.conv_mirror import ALL_BLOCKS, check_flip_request, set_flip_state
 from .utils import CheckpointManager, seed_everything
+
+logger = logging.getLogger(__name__)
 
 
 def _resume_checkpoint(
@@ -23,13 +25,9 @@ def _resume_checkpoint(
     hf_repo_id: Optional[str] = None,
     hub_subfolder: Optional[str] = None,
 ) -> Optional[dict]:
-    """Load a method's checkpoint from `<hub_subfolder or method>/latest.pt`,
-    falling back to the original root `latest.pt` for methods trained before
-    per-method folders existed (only attn_rotation ever used the root). Raises if
-    the checkpoint found was saved by a different method."""
+    """Load a method's checkpoint from `<hub_subfolder or method>/latest.pt`.
+    Raises if the checkpoint found was saved by a different method."""
     candidates = [hub_subfolder or method_name]
-    if method_name == "attn_rotation":
-        candidates.append(None)
 
     for subfolder in candidates:
         payload = CheckpointManager(checkpoint_dir, repo_id=hf_repo_id, hub_subfolder=subfolder).resume()
@@ -63,8 +61,8 @@ def load_student_for_inference(
     `lora_rank`/`lora_alpha`/`target_modules`/`rotate_layers` default to
     whatever `scripts/train.py` saved into the checkpoint's metadata (its
     full training config), so a `rotate_layers: all` checkpoint is never
-    accidentally loaded with the `attn_rotation` default (`up_attn1`) —
-    explicit args here still override the saved config if passed.
+    accidentally loaded with a narrower default — explicit args here still
+    override the saved config if passed.
     """
     checkpoint_payload = _resume_checkpoint(method_name, checkpoint_dir, hf_repo_id, hub_subfolder)
     if checkpoint_payload is None:
@@ -117,12 +115,17 @@ def generate(
     seed: Optional[int] = None,
     device: str = "cuda",
     latents: Optional[torch.Tensor] = None,
+    on_step: Optional[Callable[[int, int], None]] = None,
 ) -> dict:
     """Generate a reverse-time video with prompt encoding, U-Net denoising, and VAE decoding.
 
     `latents` is optional initial noise of shape (1, 4, F, H/8, W/8), before
     `init_noise_sigma` scaling; pass the same tensor to compare methods from
     identical noise. If None, it's drawn from `seed`.
+
+    `on_step(i, total_steps)`, if given, is called once per denoising step
+    (i from 0) — e.g. to report progress to a caller that can't otherwise
+    see inside this loop.
     """
     if seed is not None:
         seed_everything(seed)
@@ -160,8 +163,9 @@ def generate(
         embeds_batch = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
 
     # U-Net transformation: noisy latents -> predicted noise -> denoised latents.
+    total_steps = len(scheduler.timesteps)
     with torch.no_grad():
-        for timestep in scheduler.timesteps:
+        for i, timestep in enumerate(scheduler.timesteps):
             model_input = scheduler.scale_model_input(latents, timestep)
 
             if do_cfg:
@@ -190,6 +194,9 @@ def generate(
 
             latents = scheduler.step(noise_pred, timestep, latents).prev_sample
 
+            if on_step is not None:
+                on_step(i, total_steps)
+
     # VAE transformation: latent video -> pixel-space video frames.
     video = teacher_module.decode_latents_to_video(teacher_pipeline, latents)
     return {"latents": latents, "video": video}
@@ -198,10 +205,11 @@ def generate(
 class MethodBank:
     """Every inference method on ONE shared U-Net (fits a 16 GB T4).
 
-    Methods: "teacher", "conv_oracle", and, if their checkpoints exist,
-    "attn_rotation", "conv_student", "conv_lora" and "attn_lora". Switching enables/disables LoRA
-    adapters, swaps attention processors, and flips/unflips temporal conv
-    kernels; the clean teacher state is restored after every call.
+    Methods: "teacher", "conv_oracle", "attn_injection" (always available --
+    the last one runs zero-shot until a checkpoint is loaded), and, if their
+    checkpoints exist, "conv_lora" and "attn_lora". Switching enables/disables
+    LoRA adapters, swaps attention processors, and flips/unflips temporal
+    conv kernels; the clean teacher state is restored after every call.
     """
 
     def __init__(
@@ -218,16 +226,20 @@ class MethodBank:
         self.pipeline = teacher_module.load_teacher(model_id, device, dtype)
         self.student = None  # PeftModel once the first adapter is loaded
         self.adapters = {}  # method name -> checkpoint metadata
-        self.methods = ["teacher", "conv_oracle"]
+        self.methods = ["teacher", "conv_oracle", "attn_injection"]
 
     def load_adapter(self, method: str, hub_subfolder: Optional[str] = None) -> bool:
-        """Load "attn_rotation", "conv_student", "conv_lora" or "attn_lora" as
-        a named LoRA adapter. Returns False (and skips it) if no checkpoint exists."""
+        """Load "conv_lora", "attn_lora" or "attn_injection" as a named LoRA
+        adapter. Returns False (and skips it, leaving "attn_injection"
+        running zero-shot) if no checkpoint exists -- or, for
+        "attn_injection" specifically, if one exists but its metadata
+        doesn't confirm it was trained with the injection mechanism active
+        (e.g. someone pointed this at an old plain-LoRA checkpoint by
+        mistake)."""
         training_method = {
-            "attn_rotation": "attn_rotation",
-            "conv_student": "conv_mirror",
             "conv_lora": "conv_lora",
             "attn_lora": "attn_lora",
+            "attn_injection": "attn_injection",
         }[method]
         payload = _resume_checkpoint(
             training_method,
@@ -239,6 +251,15 @@ class MethodBank:
             return False
 
         metadata = payload.get("metadata", {})
+        if method == "attn_injection" and not metadata.get("injection"):
+            logger.warning(
+                "checkpoint at %s/latest.pt doesn't have metadata['injection']=True -- "
+                "refusing to load it for attn_injection (it may have been trained without "
+                "the injection mechanism active); staying zero-shot",
+                hub_subfolder or training_method,
+            )
+            return False
+
         config = metadata.get("config") or {}
         host = SimpleNamespace(unet=self.student) if self.student is not None else self.pipeline
         self.student = student_module.build_student(
@@ -252,7 +273,8 @@ class MethodBank:
         self.student.eval()
         self.student.requires_grad_(False)
         self.adapters[method] = metadata
-        self.methods.append(method)
+        if method not in self.methods:
+            self.methods.append(method)
         return True
 
     @contextmanager
@@ -272,13 +294,7 @@ class MethodBank:
             else:
                 metadata = self.adapters[method]
                 self.student.set_adapter(method)
-                if method == "attn_rotation":
-                    if flip_blocks:
-                        raise ValueError("attn_rotation does not take conv flips")
-                    rotate_layers = (metadata.get("config") or {}).get("rotate_layers", "up_attn1")
-                    AttentionRotation().apply(self.student, rotate_layers=rotate_layers)
-                else:
-                    set_flip_state(unet, check_flip_request(flip_blocks, metadata))
+                set_flip_state(unet, check_flip_request(flip_blocks, metadata))
                 yield self.student
         finally:
             set_flip_state(unet, ())
@@ -296,6 +312,17 @@ class MethodBank:
         """Run `generate` with `method` active. `flip_blocks` overrides the
         oracle's flips (default: all) or must match a conv student's
         trained flips; other kwargs go to `generate`."""
+        if method == "attn_injection":
+            if flip_blocks:
+                raise ValueError("attn_injection does not take conv flips")
+            loaded = "attn_injection" in self.adapters
+            model = self.student if loaded else self.pipeline.unet
+            if loaded:
+                self.student.set_adapter("attn_injection")
+            rotate_layers = (self.adapters.get("attn_injection", {}).get("config") or {}).get("rotate_layers", "up_attn1")
+            return attn_injection.generate(
+                prompt, self.pipeline, model, rotate_layers=rotate_layers, seed=seed, device=self.device, latents=latents, **kwargs
+            )
         with self._method_state(method, flip_blocks) as model:
             return generate(prompt, self.pipeline, model, seed=seed, device=self.device, latents=latents, **kwargs)
 

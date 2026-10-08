@@ -63,7 +63,7 @@ def load_config(path: str | Path, overrides: Optional[Iterable[str]] = None) -> 
     """Load a YAML config file and apply ``key=value`` CLI overrides on top.
 
     Args:
-        path: Path to a YAML file, e.g. ``configs/attn_rotation.yaml``.
+        path: Path to a YAML file, e.g. ``configs/conv_lora.yaml``.
         overrides: Strings of the form ``"key=value"`` or ``"a.b.key=value"``
             for nested sections, e.g. from ``--set learning_rate=0.0002``.
             Values are parsed with ``yaml.safe_load`` so ``"1e-4"`` becomes a
@@ -73,7 +73,7 @@ def load_config(path: str | Path, overrides: Optional[Iterable[str]] = None) -> 
         The merged config dict.
 
     Example:
-        >>> cfg = load_config("configs/attn_rotation.yaml", ["learning_rate=2e-4"])
+        >>> cfg = load_config("configs/conv_lora.yaml", ["learning_rate=2e-4"])
     """
     with open(path, "r") as handle:
         config: Dict[str, Any] = yaml.safe_load(handle) or {}
@@ -92,14 +92,14 @@ def add_config_args(parser: Any) -> None:
     """Add the standard ``--config`` / ``--set`` arguments to an argparse
     parser. Kept in one place so every script's `--set key=value` behaves
     identically."""
-    parser.add_argument("--config", type=Path, default=Path("configs/attn_rotation.yaml"), help="Path to a YAML config file")
+    parser.add_argument("--config", type=Path, default=Path("configs/conv_lora.yaml"), help="Path to a YAML config file")
     parser.add_argument(
         "--set",
         dest="overrides",
         nargs="*",
         default=[],
         metavar="key=value",
-        help="Override config values, e.g. --set learning_rate=2e-4 method=attn_rotation",
+        help="Override config values, e.g. --set learning_rate=2e-4 method=conv_lora",
     )
 
 
@@ -340,7 +340,7 @@ class CheckpointManager:
         self.push_every_seconds = push_every_seconds
         self.token = token or get_hf_token()
         # None -> "latest.pt" at the repo root (the original layout);
-        # e.g. "conv_mirror" -> "conv_mirror/latest.pt", so methods don't
+        # e.g. "conv_lora" -> "conv_lora/latest.pt", so methods don't
         # overwrite each other's checkpoints on the Hub.
         self.hub_subfolder = hub_subfolder.strip("/") if hub_subfolder else None
         self._last_push = 0.0

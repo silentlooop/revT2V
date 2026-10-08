@@ -9,15 +9,12 @@ Temporal attention needs no change: it has no positional encoding, so it is
 order-agnostic and already commutes with a frame flip. Rotating it on top of
 flipped convs would be wrong.
 
-Two modes (config `use_trained_weights`):
-- false -> **oracle**: teacher weights, every temporal conv flipped, no LoRA,
-  no training. Equivalent to reversing the teacher's output, so it's a
-  reference/upper bound, not a learned method.
-- true  -> **conv student**: LoRA on the temporal Conv3d layers of the
-  (by default UNflipped) teacher, trained on reversed latents, optionally with
-  a mirrored-teacher loss. `flip_blocks` flips some blocks before training
-  ("partial flip + LoRA"); it is saved in the checkpoint and re-applied at
-  inference.
+This is the **conv_oracle** method: teacher weights, every temporal conv
+flipped, no LoRA, no training. Equivalent to reversing the teacher's output,
+so it's a reference/upper bound, not a learned method -- see
+`revt2v.infer.MethodBank` for how it's selected at inference (no checkpoint
+needed). This module also holds `mirrored_teacher_noise`/`require_conv3d_lora`,
+shared with `conv_lora.py`'s trained method.
 
 Flips are all-or-nothing per layer: blends like 0.5*W + 0.5*flip(W) break
 the model, so there's deliberately no blending parameter anywhere here.
@@ -39,7 +36,7 @@ BLOCK_PREFIXES = {"down": "down_blocks.", "mid": "mid_block.", "up": "up_blocks.
 ALL_BLOCKS: Tuple[str, ...] = ("down", "mid", "up")
 
 # ModelScope's U-Net: 22 TemporalConvLayers x 4 Conv3d each (32 down, 8 mid,
-# 48 up). Sanity-checked like AttentionRotation.LAYER_COUNTS.
+# 48 up). Sanity-checked with an assert wherever it's used (see lora_targets).
 TEMPORAL_CONV_COUNT = 88
 
 # Attribute on the base U-Net recording which blocks are currently flipped,
@@ -97,18 +94,6 @@ def conv_lora_targets(unet: Any) -> List[str]:
     return [name.removesuffix(".base_layer") for name in find_temporal_convs(unet)]
 
 
-def attention_lora_targets(unet: Any) -> List[str]:
-    """Temporal attention Linears to also give LoRA in the conv student.
-
-    TODO (you fill this in): return full module names of the temporal
-    attention projections to train alongside the convs, e.g. the `to_v` and
-    `to_out.0` of attn1/attn2 under each `TransformerTemporalModel`
-    (selected by class, like `AttentionRotation.apply`). Returning [] keeps
-    the conv student conv-only.
-    """
-    return []
-
-
 def flipped_blocks(unet: Any) -> Tuple[str, ...]:
     """Blocks whose temporal convs are currently flipped."""
     return tuple(getattr(_base_unet(unet), _FLIP_STATE_ATTR, ()))
@@ -147,18 +132,18 @@ def set_flip_state(unet: Any, blocks: Sequence[str]) -> None:
 
 
 def checkpoint_flip_blocks(metadata: Dict[str, Any]) -> Tuple[str, ...]:
-    """The flip config a conv-student checkpoint was trained with."""
+    """The flip config a trained-adapter checkpoint recorded, if any."""
     if "flip_blocks" in metadata:
         return _check_blocks(metadata["flip_blocks"])
     return _check_blocks((metadata.get("config") or {}).get("flip_blocks") or ())
 
 
 def check_flip_request(requested: Optional[Sequence[str]], metadata: Dict[str, Any]) -> Tuple[str, ...]:
-    """Return the flips to apply for a trained conv student, refusing any
-    flip that differs from what it was trained with.
+    """Return the flips to apply for a loaded adapter, refusing any flip
+    that differs from what it was trained with.
 
-    A student trained without flips already generates reverse time; flipping
-    its convs on top would reverse it again (back to forward time).
+    An adapter trained without flips already generates reverse time;
+    flipping its convs on top would reverse it again (back to forward time).
     """
     trained = checkpoint_flip_blocks(metadata)
     if requested is None:
@@ -166,9 +151,9 @@ def check_flip_request(requested: Optional[Sequence[str]], metadata: Dict[str, A
     requested = _check_blocks(requested)
     if set(requested) != set(trained):
         raise ValueError(
-            f"Refusing to flip blocks {list(requested)} on a conv student "
+            f"Refusing to flip blocks {list(requested)} on an adapter "
             f"trained with flip_blocks={list(trained)}: extra flips on a "
-            "trained student double-reverse time. Use method 'conv_oracle' "
+            "trained adapter double-reverse time. Use method 'conv_oracle' "
             "for the flipped teacher instead."
         )
     return trained
@@ -212,55 +197,3 @@ def mirrored_teacher_noise(
         set_flip_state(unet, flips)
         unet.train(was_training)
     return flip_latents_time_axis(teacher_noise)
-
-
-class ConvMirror:
-    """Flip temporal conv kernels (oracle) or LoRA-tune them (conv student)."""
-
-    def lora_targets(self, unet: Any) -> List[str]:
-        """LoRA targets for the conv student: temporal Conv3d layers plus
-        whatever `attention_lora_targets` returns."""
-        require_conv3d_lora()
-        targets = conv_lora_targets(unet)
-        if len(targets) != TEMPORAL_CONV_COUNT:
-            raise ValueError(f"Expected {TEMPORAL_CONV_COUNT} temporal Conv3d layers, found {len(targets)}")
-        return targets + attention_lora_targets(unet)
-
-    def apply(
-        self,
-        student: Any,
-        flip_blocks: Optional[Sequence[str]] = None,
-        use_trained_weights: bool = True,
-        **kwargs: Any,
-    ) -> Any:
-        """Flip temporal convs and return the student.
-
-        - use_trained_weights=False (oracle): flip all blocks.
-        - use_trained_weights=True (student): flip exactly `flip_blocks`
-          (default none), the same set it was/will be trained with.
-        """
-        blocks = ALL_BLOCKS if not use_trained_weights else (flip_blocks or ())
-        set_flip_state(student, blocks)
-        return student
-
-    def loss(
-        self,
-        predicted_noise: Any,
-        target_noise: Any,
-        mirror_loss_weight: float = 0.0,
-        student: Any = None,
-        noisy_latents: Any = None,
-        timesteps: Any = None,
-        encoder_hidden_states: Any = None,
-        **extra: Any,
-    ) -> Any:
-        """eps-MSE plus `mirror_loss_weight` * MSE to the mirrored teacher."""
-        loss = torch.nn.functional.mse_loss(predicted_noise.float(), target_noise.float())
-        if mirror_loss_weight > 0:
-            if student is None or encoder_hidden_states is None:
-                raise ValueError("mirror loss needs student and encoder_hidden_states")
-            mirror_target = mirrored_teacher_noise(student, noisy_latents, timesteps, encoder_hidden_states)
-            loss = loss + mirror_loss_weight * torch.nn.functional.mse_loss(
-                predicted_noise.float(), mirror_target.float()
-            )
-        return loss

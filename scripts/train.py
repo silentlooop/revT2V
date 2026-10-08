@@ -7,6 +7,7 @@ import itertools
 import logging
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 import torch
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from revt2v import data, infer, teacher  # noqa: E402
 from revt2v import student as Student  # noqa: E402
 from revt2v.methods import METHODS  # noqa: E402
+from revt2v.methods import attn_injection  # noqa: E402
 from revt2v.utils import (  # noqa: E402
     CheckpointManager,
     add_config_args,
@@ -101,9 +103,16 @@ def _enable_gradient_checkpointing(unet) -> None:
         )
 
 
-def _run_sampling(pipeline, student, config, step, sample_folder, hf_repo, results_dir, device) -> None:
+def _run_sampling(pipeline, student, config, step, sample_folder, hf_repo, results_dir, device, generate_fn=infer.generate) -> None:
     """Generate config['sample_prompts'] with the CURRENT student (rotation +
-    LoRA active, CFG with uncond) and upload them, then restore train mode."""
+    LoRA active, CFG with uncond) and upload them, then restore train mode.
+
+    `generate_fn` defaults to the plain single-pass `infer.generate`; methods
+    whose forward pass isn't just "call the student" (currently only
+    attn_injection, whose inject processors need a capture pass to have
+    populated their stored attention maps first) pass their own generate
+    function instead -- plain `infer.generate` would read an empty store and
+    crash outside of scripts/train.py's `prepare_step` calls."""
     prompts = config.get("sample_prompts") or []
     if not prompts:
         return
@@ -112,7 +121,7 @@ def _run_sampling(pipeline, student, config, step, sample_folder, hf_repo, resul
     try:
         for i, prompt in enumerate(prompts):
             with torch.no_grad():
-                result = infer.generate(
+                result = generate_fn(
                     prompt,
                     pipeline,
                     student,
@@ -154,7 +163,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config, args.overrides)
-    method_name = args.method or config.get("method", "attn_rotation")
+    method_name = args.method or config.get("method", "conv_lora")
     seed_everything(config.get("seed", 42))
 
     data_root = args.data_root or Path(config.get("data_root", default_data_root()))
@@ -163,14 +172,11 @@ def main() -> None:
 
     hf_repo = args.hf_repo or config.get("hf_repo")
     hf_dataset_repo = args.hf_dataset_repo or config.get("hf_dataset_repo")
-    # None -> checkpoint pushed to the HF repo root (original layout); set
-    # per method so different methods never overwrite each other's latest.pt.
+    # Every method sets its own hf_subfolder so none of them ever overwrite
+    # each other's latest.pt at the repo root.
     hf_subfolder = args.hf_subfolder or config.get("hf_subfolder")
-    if method_name != "attn_rotation" and not (hf_subfolder or "").strip("/"):
-        raise ValueError(f"{method_name} must set hf_subfolder so it never overwrites the root (attn_rotation) checkpoint")
-    if method_name == "conv_mirror":
-        if not config.get("use_trained_weights", True):
-            raise ValueError("use_trained_weights=false is the conv oracle (flipped teacher); it needs no training")
+    if not (hf_subfolder or "").strip("/"):
+        raise ValueError(f"{method_name} must set hf_subfolder so it never overwrites another method's checkpoint")
     push_every_seconds = args.push_every_seconds if args.push_every_seconds is not None else config.get("push_every_seconds", 600.0)
     log_every_steps = args.log_every_steps if args.log_every_steps is not None else config.get("log_every_steps", 20)
     save_every_steps = args.save_every_steps if args.save_every_steps is not None else config.get("save_every_steps", 200)
@@ -185,7 +191,9 @@ def main() -> None:
     _ensure_dataset(data_root, hf_dataset_repo, config.get("data_version"))
 
     # --- Model setup (each call below is a scaffolded function you implement) ---
+    logger.info("Loading teacher pipeline %s on %s (downloads ~5GB on a fresh environment, no progress logged)...", config.get("model_id", teacher.MODEL_ID), device)
     pipeline = teacher.load_teacher(device=device)
+    logger.info("Teacher pipeline loaded")
     if config.get("gradient_checkpointing", False):
         _enable_gradient_checkpointing(pipeline.unet)
     # pipeline.scheduler is whatever fast sampler the pipeline ships for
@@ -196,9 +204,17 @@ def main() -> None:
     # which scheduler class computes it.
     noise_scheduler = DDPMScheduler.from_config(pipeline.scheduler.config)
     method = METHODS[method_name]()
+    # attn_injection's forward pass needs a capture pass to populate its
+    # inject processors' stored attention maps first -- plain infer.generate
+    # would read an empty store outside of this loop's own prepare_step calls.
+    generate_fn = (
+        partial(attn_injection.generate, rotate_layers=config.get("rotate_layers", "none"))
+        if method_name == "attn_injection"
+        else infer.generate
+    )
     if hasattr(method, "lora_targets") and not config.get("target_modules"):
         # Saved into the checkpoint's config so inference rebuilds the same adapter.
-        config["target_modules"] = method.lora_targets(pipeline.unet)
+        config["target_modules"] = method.lora_targets(pipeline.unet, rotate_layers=config.get("rotate_layers", "none"))
     student = Student.build_student(
         pipeline,
         lora_rank=config.get("lora_rank", 8),
@@ -278,12 +294,16 @@ def main() -> None:
                 noise,
                 timesteps,
             )
+            # Only attn_injection defines this: runs its capture pass and
+            # refreshes the stored attention maps the (already-installed)
+            # inject processors read from -- a no-op for every other method.
+            getattr(method, "prepare_step", lambda *a, **k: None)(student, noisy_latents, timesteps, prompt_embeds)
             predicted_noise = Student.predict_noise(student, noisy_latents, timesteps, prompt_embeds)
-            # Extra kwargs beyond (predicted_noise, target_noise) are method-specific
-            # (e.g. rotation_weight, prior_weight) — every method accepts **extra so
-            # this call is uniform across attn_rotation/conv_mirror. A method
-            # whose loss needs more context (e.g. conv_mirror's mirrored-teacher
-            # term) can read noisy_latents/timesteps/student/etc. from here too.
+            # Extra kwargs beyond (predicted_noise, target_noise) are method-specific;
+            # every method accepts **extra so this call is uniform across all of
+            # them. A method whose loss needs more context (e.g. conv_mirror's
+            # mirrored-teacher term) can read noisy_latents/timesteps/student/etc.
+            # from here too.
             loss = method.loss(
                 predicted_noise,
                 noise,
@@ -291,8 +311,6 @@ def main() -> None:
                 timesteps=timesteps,
                 scheduler=noise_scheduler,
                 target_x0=reversed_latents,
-                rotation_weight=config.get("rotation_weight", 0.0),
-                prior_weight=config.get("prior_weight", 0.0),
                 mirror_loss_weight=config.get("mirror_loss_weight", 0.0),
                 student=student,
                 encoder_hidden_states=prompt_embeds,
@@ -326,11 +344,15 @@ def main() -> None:
                 config=config,
                 flip_blocks=list(config.get("flip_blocks") or []),
                 rng_state=torch.get_rng_state(),
+                # Inference's safety check refuses to load an attn_injection/
+                # checkpoint whose metadata doesn't confirm it was actually
+                # trained with the injection mechanism active.
+                **({"injection": True} if method_name == "attn_injection" else {}),
             )
 
         if sample_every_steps and (step % sample_every_steps == 0 or step == num_steps - 1):
             # Samples go under hf_subfolder too, so a smoke test never mixes into a real run's.
-            _run_sampling(pipeline, student, config, step, hf_subfolder or method_name, hf_repo, results_dir, device)
+            _run_sampling(pipeline, student, config, step, hf_subfolder or method_name, hf_repo, results_dir, device, generate_fn=generate_fn)
 
     logger.info("Training complete: %d steps, checkpoint at %s", num_steps, ckpt.local_path)
 
