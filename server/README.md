@@ -14,7 +14,9 @@ model code.
    access to `silentlooop/revt2v-ckpt`, and turn on notebook access for it.
 4. **Runtime > Run all.**
 5. Step 6 prints a `SERVER URL` (a `*.trycloudflare.com` link) and an
-   `API KEY`. Paste both into the frontend's settings.
+   `API KEY`. In `client/.env.local`, set `VITE_API_BASE_URL=<SERVER URL>`,
+   `VITE_API_KEY=<API KEY>`, and `VITE_USE_MOCK=false`, then restart
+   `npm run dev` (Vite only reads `.env*` at startup).
 6. Leave the notebook running (step 8's cell) while you use the frontend —
    closing the tab or letting Colab disconnect kills the server and the
    tunnel. **The URL changes every time the notebook restarts**; re-run from

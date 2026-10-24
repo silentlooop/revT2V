@@ -9,6 +9,6 @@
 | `client/` | The Vite + React frontend. See `client/README.md`. |
 | `tests/` | Pytest suite — all CPU-only, no GPU or model download required. |
 | `notebooks/` | Ad hoc Jupyter notebooks (comparing methods, pushing datasets/model cards to the Hub). |
-| `kaggle/` | Kaggle kernel launchers (training + dataset building on Kaggle's GPU). |
+| `kaggle/` | Kaggle launcher notebook (`kaggle/nb/revt2v.ipynb`): rank check, smoke tests, and the real `conv_lora`/`attn_injection` training runs on Kaggle's GPU. Dataset building is done locally via `notebooks/build_dataset.ipynb`, not on Kaggle. |
 | `prompts/` | `train.txt` / `test.txt` prompt lists for dataset building and evaluation. |
 | `results/` | Generated videos, checkpoints copied locally, eval output — gitignored except a `.gitkeep`. |

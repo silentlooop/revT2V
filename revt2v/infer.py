@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import contextmanager, nullcontext
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import torch
 
@@ -13,8 +15,9 @@ from . import student as student_module
 from . import teacher as teacher_module
 from .data import flip_latents_time_axis
 from .methods import METHODS, attn_injection
+from .methods.attn_rotation import RotatedTemporalAttnProcessor
 from .methods.conv_mirror import ALL_BLOCKS, check_flip_request, set_flip_state
-from .utils import CheckpointManager, seed_everything
+from .utils import CheckpointManager, load_config, seed_everything
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +205,76 @@ def generate(
     return {"latents": latents, "video": video}
 
 
+# ModelScope's U-Net: 9 up-block attn1 layers get rotated for "up_attn1"
+# (module-level so tests can monkeypatch it against a toy U-Net with fewer
+# up-blocks, same pattern as methods.attn_injection's _UP_ATTN1_COUNT).
+_UP_ATTN1_ROTATION_COUNT = 9
+
+
+def _rotation_processors(unet: Any) -> Dict[str, Any]:
+    """Processor dict for attn_rotation's 9 up-block temporal attn1 layers.
+
+    Mirrors `methods.attn_rotation.AttentionRotation.apply`'s own
+    "up_attn1" layer selection exactly, reimplemented here because that
+    method assumes a peft-wrapped student (it unwraps via `get_base_model`/
+    `base_model.model`) -- MethodBank also needs to install/remove these
+    processors on the plain teacher U-Net, for `attn_rotation_zeroshot`
+    before any adapter has ever been loaded.
+    """
+    from diffusers import TransformerTemporalModel
+
+    processors: Dict[str, Any] = {}
+    for name, module in unet.named_modules():
+        if not isinstance(module, TransformerTemporalModel):
+            continue
+        if not name.startswith("up_blocks."):
+            continue
+        for block_idx in range(len(module.transformer_blocks)):
+            processors[f"{name}.transformer_blocks.{block_idx}.attn1.processor"] = RotatedTemporalAttnProcessor()
+    if len(processors) != _UP_ATTN1_ROTATION_COUNT:
+        raise RuntimeError(
+            f"expected {_UP_ATTN1_ROTATION_COUNT} up-block attn1 layers for attn_rotation, found {len(processors)}"
+        )
+    return processors
+
+
+def _infer_lora_config_from_state_dict(
+    state_dict: Dict[str, Any], configured_alpha: Optional[int] = None
+) -> Tuple[int, int, list]:
+    """Recover (rank, alpha, target_modules) from LoRA tensor shapes when a
+    checkpoint's metadata doesn't have them. Rank is read off `lora_A`'s
+    shape; alpha can't be recovered from the weights themselves (it's only
+    a loss-time/merge-time rescale, never stored), so this uses
+    `configured_alpha` (e.g. configs/attn_rotation.yaml's `lora_alpha`) if
+    given, else alpha=rank -- and always logs which one it assumed."""
+    lora_a_keys = [k for k in state_dict if re.search(r"\.lora_A(\.[^.]+)?\.weight$", k)]
+    if not lora_a_keys:
+        raise RuntimeError("checkpoint has no lora_A tensors -- can't infer rank/target_modules")
+
+    rank = None
+    target_modules = set()
+    for key in lora_a_keys:
+        r = state_dict[key].shape[0]
+        if rank is None:
+            rank = r
+        elif r != rank:
+            raise RuntimeError(f"inconsistent LoRA rank across tensors ({rank} vs {r} at {key!r})")
+        base = re.sub(r"\.lora_A(\.[^.]+)?\.weight$", "", key)
+        base = re.sub(r"^base_model\.model\.", "", base)
+        target_modules.add(base)
+
+    alpha = configured_alpha if configured_alpha is not None else rank
+    logger.warning(
+        "attn_rotation checkpoint metadata is missing lora_rank/lora_alpha/target_modules -- "
+        "inferred rank=%d from tensor shapes, assuming alpha=%d (%s), %d target module(s)",
+        rank,
+        alpha,
+        "from configs/attn_rotation.yaml" if configured_alpha is not None else "alpha=rank default, no config found",
+        len(target_modules),
+    )
+    return rank, alpha, sorted(target_modules)
+
+
 class MethodBank:
     """Every inference method on ONE shared U-Net (fits a 16 GB T4).
 
@@ -210,6 +283,11 @@ class MethodBank:
     checkpoints exist, "conv_lora" and "attn_lora". Switching enables/disables
     LoRA adapters, swaps attention processors, and flips/unflips temporal
     conv kernels; the clean teacher state is restored after every call.
+
+    Also "attn_rotation_zeroshot" (always available -- the original
+    self-rotation mechanism, no LoRA, research-only: not in the server's
+    public method list) and "attn_rotation" (only once
+    `load_attn_rotation_adapter()` finds and verifies its checkpoint).
     """
 
     def __init__(
@@ -226,7 +304,7 @@ class MethodBank:
         self.pipeline = teacher_module.load_teacher(model_id, device, dtype)
         self.student = None  # PeftModel once the first adapter is loaded
         self.adapters = {}  # method name -> checkpoint metadata
-        self.methods = ["teacher", "conv_oracle", "attn_injection"]
+        self.methods = ["teacher", "conv_oracle", "attn_injection", "attn_rotation_zeroshot"]
 
     def load_adapter(self, method: str, hub_subfolder: Optional[str] = None) -> bool:
         """Load "conv_lora", "attn_lora" or "attn_injection" as a named LoRA
@@ -277,6 +355,153 @@ class MethodBank:
             self.methods.append(method)
         return True
 
+    def load_attn_rotation_adapter(self, hub_subfolder: str = "attn_rotation") -> bool:
+        """Load the original attn_rotation checkpoint: self-rotation (Q/K
+        flipped on the frame axis) + LoRA on the 9 up-block temporal attn1
+        layers' to_v/to_out.0. Checks `<hub_subfolder>/latest.pt` first,
+        then the legacy repo-root `latest.pt` (where this checkpoint was
+        actually saved, before the per-method subfolder convention
+        existed) -- prefers the subfolder if both exist.
+
+        Returns False only if no checkpoint is found at all. If one IS
+        found but doesn't verify (wrong LoRA shape, an all-zero adapter, no
+        measurable effect on the U-Net), this raises instead of silently
+        continuing -- "attn_rotation" is never added to `self.methods` on
+        a failed verification.
+        """
+        payload, found_at = None, None
+        for subfolder, local_tag in ((hub_subfolder, hub_subfolder), (None, f"{hub_subfolder}_legacy_root")):
+            candidate = CheckpointManager(
+                f"{self.checkpoint_root}/{local_tag}", repo_id=self.hf_repo_id, hub_subfolder=subfolder
+            ).resume()
+            if candidate is not None:
+                payload, found_at = candidate, (subfolder or "<repo root>")
+                break
+
+        if payload is None:
+            logger.warning(
+                "no attn_rotation checkpoint found (checked %s/latest.pt and the repo root "
+                "latest.pt, locally under %s and on HF repo %s)",
+                hub_subfolder,
+                self.checkpoint_root,
+                self.hf_repo_id,
+            )
+            return False
+
+        state_dict = payload.get("model")
+        if state_dict is None:
+            raise RuntimeError(f"attn_rotation checkpoint at {found_at} has no 'model' key")
+
+        metadata = payload.get("metadata", {}) or {}
+        saved_method = metadata.get("method")
+        if saved_method not in (None, "attn_rotation"):
+            logger.warning(
+                "attn_rotation checkpoint at %s has metadata['method']=%r, not 'attn_rotation' -- "
+                "loading it anyway, but double check this is the right checkpoint",
+                found_at,
+                saved_method,
+            )
+
+        config = metadata.get("config") or {}
+        saved_rotate_layers = config.get("rotate_layers", "up_attn1")
+        if saved_rotate_layers != "up_attn1":
+            logger.warning(
+                "attn_rotation checkpoint at %s was trained with rotate_layers=%r, not "
+                "'up_attn1' -- this MethodBank wiring only installs the 9-layer up_attn1 rotation",
+                found_at,
+                saved_rotate_layers,
+            )
+
+        rank, alpha, target_modules = config.get("lora_rank"), config.get("lora_alpha"), config.get("target_modules")
+        if rank is None or alpha is None or not target_modules:
+            configured_alpha = None
+            config_path = Path("configs/attn_rotation.yaml")
+            if config_path.exists():
+                try:
+                    configured_alpha = load_config(config_path).get("lora_alpha")
+                except Exception:
+                    configured_alpha = None
+            inferred_rank, inferred_alpha, inferred_targets = _infer_lora_config_from_state_dict(
+                state_dict, configured_alpha
+            )
+            rank = rank if rank is not None else inferred_rank
+            alpha = alpha if alpha is not None else inferred_alpha
+            target_modules = target_modules or inferred_targets
+
+        host = SimpleNamespace(unet=self.student) if self.student is not None else self.pipeline
+        self.student = student_module.build_student(
+            host, lora_rank=rank, lora_alpha=alpha, target_modules=target_modules, adapter_name="attn_rotation"
+        )
+
+        from peft import set_peft_model_state_dict
+
+        load_result = set_peft_model_state_dict(self.student, state_dict, adapter_name="attn_rotation")
+        missing = [k for k in getattr(load_result, "missing_keys", []) if "attn_rotation" in k]
+        unexpected = list(getattr(load_result, "unexpected_keys", []))
+        if missing or unexpected:
+            raise RuntimeError(
+                f"attn_rotation checkpoint at {found_at} didn't load cleanly: "
+                f"missing={missing[:5]}, unexpected={unexpected[:5]}"
+            )
+
+        self.student.eval()
+        self.student.requires_grad_(False)
+
+        from peft.tuners.lora import LoraLayer
+
+        rotation_layers = [
+            (name, module)
+            for name, module in self.student.named_modules()
+            if isinstance(module, LoraLayer) and "attn_rotation" in module.lora_A
+        ]
+        bad_names = [name for name, _ in rotation_layers if not re.search(r"up_blocks.*attn1\.(to_v|to_out\.0)$", name)]
+        if len(rotation_layers) != 18 or bad_names:
+            raise RuntimeError(
+                "attn_rotation adapter verification failed: expected exactly 18 LoRA Linear "
+                f"layers in up_blocks attn1 (to_v/to_out.0), found {len(rotation_layers)} "
+                f"(unexpected names: {bad_names[:5]})"
+            )
+
+        zero_norm = [name for name, module in rotation_layers if module.lora_B["attn_rotation"].weight.norm().item() == 0.0]
+        if zero_norm:
+            raise RuntimeError(
+                f"attn_rotation adapter verification failed: lora_B is all-zero for {zero_norm[:5]} "
+                "-- looks untrained"
+            )
+
+        unet = self.pipeline.unet
+        processors_before = dict(unet.attn_processors)
+        try:
+            unet.set_attn_processor(_rotation_processors(unet))
+            fixed_emb, _ = teacher_module.encode_prompt(self.pipeline, "", device=self.device)
+            fixed_emb = fixed_emb.to(unet.dtype)
+            fixed_latents = torch.randn((1, 4, 16, 32, 32), device=self.device, dtype=unet.dtype)
+            fixed_t = torch.tensor([500], device=self.device)
+            with torch.no_grad():
+                self.student.set_adapter("attn_rotation")
+                out_on = self.student(fixed_latents, fixed_t, encoder_hidden_states=fixed_emb, return_dict=False)[0]
+                with self.student.disable_adapter():
+                    out_off = self.student(fixed_latents, fixed_t, encoder_hidden_states=fixed_emb, return_dict=False)[0]
+            if torch.allclose(out_on, out_off, atol=1e-6):
+                raise RuntimeError(
+                    "attn_rotation adapter verification failed: U-Net output is identical with "
+                    "the adapter enabled vs disabled on a fixed input -- the LoRA appears to have no effect"
+                )
+        finally:
+            unet.set_attn_processor(processors_before)
+
+        self.adapters["attn_rotation"] = metadata
+        if "attn_rotation" not in self.methods:
+            self.methods.append("attn_rotation")
+        logger.info(
+            "attn_rotation adapter loaded from %s: rank=%d alpha=%d, %d LoRA layers verified",
+            found_at,
+            rank,
+            alpha,
+            len(rotation_layers),
+        )
+        return True
+
     @contextmanager
     def _method_state(self, method: str, flip_blocks: Optional[Sequence[str]] = None):
         if method not in self.methods:
@@ -323,6 +548,27 @@ class MethodBank:
             return attn_injection.generate(
                 prompt, self.pipeline, model, rotate_layers=rotate_layers, seed=seed, device=self.device, latents=latents, **kwargs
             )
+        if method in ("attn_rotation", "attn_rotation_zeroshot"):
+            if flip_blocks:
+                raise ValueError(f"{method} does not take conv flips")
+            if method == "attn_rotation" and "attn_rotation" not in self.adapters:
+                raise ValueError(
+                    "attn_rotation has no loaded checkpoint -- call load_attn_rotation_adapter() "
+                    "first, or use 'attn_rotation_zeroshot' instead"
+                )
+            unet = self.pipeline.unet
+            processors_before = dict(unet.attn_processors)
+            try:
+                unet.set_attn_processor(_rotation_processors(unet))
+                if method == "attn_rotation":
+                    self.student.set_adapter("attn_rotation")
+                    return generate(prompt, self.pipeline, self.student, seed=seed, device=self.device, latents=latents, **kwargs)
+                adapters_off = self.student.disable_adapter() if self.student is not None else nullcontext()
+                with adapters_off:
+                    model = self.student if self.student is not None else unet
+                    return generate(prompt, self.pipeline, model, seed=seed, device=self.device, latents=latents, **kwargs)
+            finally:
+                unet.set_attn_processor(processors_before)
         with self._method_state(method, flip_blocks) as model:
             return generate(prompt, self.pipeline, model, seed=seed, device=self.device, latents=latents, **kwargs)
 

@@ -1,0 +1,15 @@
+flowchart LR
+    P[prompts] --> T[teacher: frozen ModelScope]
+    T --> FL[forward latents]
+    FL --> FX[flip frame axis]
+    FX --> RT[reversed targets]
+    RT --> S[student: LoRA, trainable]
+    S --> INF[inference: generate]
+    INF --> EV[evaluation vs matched target]
+    RT -. reference .-> EV
+
+    subgraph oracle [oracle reference path, training-free]
+      CO[conv_oracle: flip temporal conv kernels]
+    end
+    S -. compared against .-> CO
+    CO -. reference .-> EV
