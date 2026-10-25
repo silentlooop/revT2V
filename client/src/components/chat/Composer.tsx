@@ -60,21 +60,24 @@ export function Composer({ methods, disabled, onSend, prompt, setPrompt }: { met
       </div>
 
       <div className="border-t-2 border-ink flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2">
-        <div className="flex border border-ink" role="radiogroup" aria-label="Student method">
-          {(methods.length ? methods : [{ id: method, label: method, available: true } as Method]).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="radio"
-              aria-checked={method === m.id}
-              disabled={!m.available}
-              onClick={() => setMethod(m.id)}
-              title={m.description}
-              className={cx(seg(method === m.id), method === m.id && m.kind === 'main' && 'bg-accent! text-on-accent!', 'disabled:opacity-40')}
-            >
-              {m.label}
-            </button>
-          ))}
+        <div className="flex items-center">
+          <span className="font-mono text-xs text-mute mr-1.5">method</span>
+          <div className="flex border border-ink" role="radiogroup" aria-label="Student method">
+            {(methods.length ? methods : [{ id: method, label: method, available: true } as Method]).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={method === m.id}
+                disabled={!m.available}
+                onClick={() => setMethod(m.id)}
+                title={m.available ? m.description : `${m.description} (unavailable${m.reason ? `: ${m.reason}` : ''})`}
+                className={cx(seg(method === m.id), method === m.id && m.kind === 'main' && 'bg-accent! text-on-accent!', 'disabled:opacity-40')}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center">

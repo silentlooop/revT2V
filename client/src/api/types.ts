@@ -10,6 +10,7 @@ export interface Method {
   trained: boolean;
   available: boolean;
   checkpoint?: string;
+  reason?: string;
 }
 
 export interface GenerateRequest {

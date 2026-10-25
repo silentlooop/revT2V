@@ -48,6 +48,7 @@ The composer and the method lists are built from this. Nothing is hardcoded in t
 | `kind` | `"main" \| "trained" \| "training_free"` | controls the method tag |
 | `available` | bool | `false` → greyed out and not selectable |
 | `checkpoint` | string? | shown for information only |
+| `reason` | string? | why `available` is `false` (e.g. no checkpoint found); shown in the method's tooltip |
 
 Expected ids:
 
