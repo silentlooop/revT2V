@@ -1,6 +1,6 @@
-# Method 2/3 (primary): rotate the 9 up-block temporal self-attention
-# (attn1) layers 180 degrees, then a lightweight LoRA fine-tune on those same
-# layers. See revt2v/methods/attn_rotation.py. Run with:
+# One of the project's four methods: rotate the 9 up-block temporal
+# self-attention (attn1) layers 180 degrees, then a lightweight LoRA
+# fine-tune on those same layers. See revt2v/methods/attn_rotation.py. Run with:
 #   python scripts/train.py --config configs/attn_rotation.yaml --hf-repo <you>/revt2v-checkpoints
 #
 # For the 34-layer ablation, override from the CLI instead of a second config:

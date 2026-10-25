@@ -22,8 +22,8 @@ export const MOCK_METHODS: Method[] = [
     checkpoint: 'silentlooop/revt2v-ckpt/attn_injection',
   },
   {
-    id: 'conv_oracle',
-    label: 'conv_oracle',
+    id: 'conv_mirror',
+    label: 'conv_mirror',
     kind: 'training_free',
     description: 'Temporal conv kernels flipped in time',
     trained: false,
@@ -37,6 +37,15 @@ export const MOCK_METHODS: Method[] = [
     trained: true,
     available: true,
     checkpoint: 'silentlooop/revt2v-ckpt/conv_lora',
+  },
+  {
+    id: 'attn_rotation',
+    label: 'attn_rotation',
+    kind: 'trained',
+    description: 'Self-rotation on up-block temporal attn1 + LoRA on value/output',
+    trained: true,
+    available: true,
+    checkpoint: 'silentlooop/revt2v-ckpt/attn_rotation',
   },
 ];
 
@@ -135,8 +144,9 @@ function videoOut(url: string, frames: number): VideoOut {
 
 const METHOD_PROFILE: Record<string, { fvd: [number, number]; clipDelta: number }> = {
   attn_injection: { fvd: [380, 620], clipDelta: -1.2 },
-  conv_oracle: { fvd: [8, 30], clipDelta: 0 },
+  conv_mirror: { fvd: [8, 30], clipDelta: 0 },
   conv_lora: { fvd: [180, 320], clipDelta: -0.4 },
+  attn_rotation: { fvd: [340, 560], clipDelta: -1.0 },
 };
 
 export function buildPair(jobId: string, req: GenerateRequest, timeTaken: number): PairResult {

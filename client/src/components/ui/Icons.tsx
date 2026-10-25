@@ -53,12 +53,6 @@ export const HeadphonesIcon = ({ size = 20, ...p }: P) => (
   </svg>
 );
 
-export const DownloadIcon = ({ size = 16, ...p }: P) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...p}>
-    <path d="M12 3v12m-5-5l5 5 5-5M4 20h16" fill="none" stroke="currentColor" strokeWidth="2.4" />
-  </svg>
-);
-
 export const StarIcon = ({ size = 18, filled = true, ...p }: P & { filled?: boolean }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...p}>
     <path

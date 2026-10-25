@@ -74,13 +74,16 @@ function timeMap(spec: ClipSpec, t: number): number {
   const r = mulberry32(seed ^ hashString(method));
   const wob = r() * 6.28;
   switch (method) {
-    case 'conv_oracle':
+    case 'conv_mirror':
       return 1 - t;
     case 'conv_lora':
       return clamp(1 - t + 0.025 * Math.sin(t * 9 + wob), 0, 1);
     case 'attn_injection':
       // damped, partly reversed motion with a direction wobble
       return clamp(0.75 - 0.4 * t + 0.06 * Math.sin(t * Math.PI * 2 + wob), 0, 1);
+    case 'attn_rotation':
+      // attention-only rotation: direction wobble, no conv-level reversal
+      return clamp(0.5 + 0.1 * Math.sin(t * Math.PI * 2 + wob), 0, 1);
     default:
       return 1 - t;
   }

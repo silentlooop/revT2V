@@ -40,9 +40,9 @@ export const THEORY: TheoryBlock[] = [
     diagram: 'attnLora',
   },
   {
-    id: 'conv_oracle',
+    id: 'conv_mirror',
     num: '02',
-    title: 'conv_oracle',
+    title: 'conv_mirror',
     tag: 'training-free',
     summary: 'Flip every temporal convolution kernel along time. The network becomes an exact time mirror of the teacher.',
     equations: [
@@ -65,8 +65,19 @@ export const THEORY: TheoryBlock[] = [
     diagram: 'convLora',
   },
   {
-    id: 'metrics',
+    id: 'attn_rotation',
     num: '04',
+    title: 'attn_rotation',
+    summary: 'Self-rotation: flip Q/K on the frame axis in the 9 up-block temporal attn1 layers, then LoRA on their value/output projections. No conv involvement.',
+    equations: [
+      { label: 'self-rotation', tex: 'Q^{\\text{rot}} = \\mathcal R Q,\\quad K^{\\text{rot}} = \\mathcal R K' },
+      { label: 'LoRA', tex: "W' = W + BA,\\; r \\ll d" },
+    ],
+    diagram: 'attnLora',
+  },
+  {
+    id: 'metrics',
+    num: '05',
     title: 'Metrics',
     summary: 'FVD for distance, CLIP for prompt match, dynamic degree for motion, optical flow for direction.',
     equations: [{ label: 'flow direction', tex: "\\cos = \\frac{\\langle u^{s},\\, -\\mathcal R u^{t}\\rangle}{\\|u^s\\|\\,\\|u^t\\|}" }],

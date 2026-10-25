@@ -9,7 +9,7 @@ export const EXAMPLE_PROMPTS = [
 ];
 
 export const DEFAULT_REQUEST: Omit<GenerateRequest, 'prompt' | 'seed'> = {
-  student_method: 'conv_lora',
+  student_method: 'conv_mirror',
   steps: 25,
   cfg: 9.0,
   num_frames: 16,

@@ -185,12 +185,13 @@ def test_rotation_processors_wrong_count_raises(monkeypatch):
         infer._rotation_processors(_ToyUNet())
 
 
-def test_attn_rotation_zeroshot_disables_every_adapter():
-    """The exact code path MethodBank.generate uses for
-    "attn_rotation_zeroshot" (`student.disable_adapter()`, no adapter set
-    active first) must leave the student computing EXACTLY the plain base
-    model's output -- that's what "zero-shot" is supposed to guarantee, not
-    just an assumption that disable_adapter() worked."""
+def test_zeroshot_disable_adapter_matches_plain_base_model():
+    """The exact mechanism MethodBank relies on for every zero-shot path
+    (`student.disable_adapter()`, no adapter set active first -- used by
+    `_method_state` for "teacher"/"conv_mirror" and by `attn_injection`'s
+    zero-shot fallback) must leave the student computing EXACTLY the plain
+    base model's output -- that's what "zero-shot" is supposed to guarantee,
+    not just an assumption that disable_adapter() worked."""
     unet = _ToyUNet()
     targets = [
         "up_blocks.0.temp_attentions.0.transformer_blocks.0.attn1.to_v",

@@ -9,7 +9,7 @@ const seg = (on: boolean) => cx('px-2.5 py-1 font-mono text-xs border-r border-i
 
 export function Composer({ methods, disabled, onSend, prompt, setPrompt }: { methods: Method[]; disabled?: boolean; onSend: (r: GenerateRequest) => void; prompt: string; setPrompt: (p: string) => void }) {
   const [method, setMethod] = useState<string>(DEFAULT_REQUEST.student_method);
-  const [seed, setSeed] = useState(42);
+  const [seed, setSeed] = useState(0);
   const [steps, setSteps] = useState(DEFAULT_REQUEST.steps);
   const [cfg, setCfg] = useState(DEFAULT_REQUEST.cfg);
   const [frames, setFrames] = useState(DEFAULT_REQUEST.num_frames);

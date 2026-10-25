@@ -1,7 +1,35 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FlowField } from '../../api/types';
+import { fetchMediaBlob } from '../../api/client';
 import { getClipFrames, isMockUrl, parseMockUrl } from '../../lib/mockClips';
 import { cx } from '../../lib/format';
+
+/** A real (non-mock) url, fetched with the tunnel-bypass/auth headers a bare
+ * <video>/<img> src can't attach, as an Object URL. null while loading. */
+function useMediaBlobUrl(url: string, skip: boolean): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (skip) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setBlobUrl(null);
+    fetchMediaBlob(url)
+      .then((obj) => {
+        if (cancelled) {
+          URL.revokeObjectURL(obj);
+          return;
+        }
+        objectUrl = obj;
+        setBlobUrl(obj);
+      })
+      .catch((err) => console.error('media fetch failed', url, err));
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, skip]);
+  return blobUrl;
+}
 
 /** Renders one frame of a clip. Mock clips draw from a canvas cache; real clips seek a paused <video>. */
 export function ClipSurface({ url, frame, fps = 8, className, label }: { url: string; frame: number; fps?: number; className?: string; label: string }) {
@@ -22,19 +50,22 @@ function MockSurface({ url, frame, className, label }: { url: string; frame: num
 
 function VideoSurface({ url, frame, fps, className, label }: { url: string; frame: number; fps: number; className?: string; label: string }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const blobUrl = useMediaBlobUrl(url, false);
   useEffect(() => {
     const v = ref.current;
     if (!v || Number.isNaN(v.duration)) return;
     v.currentTime = Math.min(v.duration - 0.001, (frame + 0.5) / fps);
-  }, [frame, fps]);
+  }, [frame, fps, blobUrl]);
+  if (!blobUrl) {
+    return <div role="img" aria-label={label} className={cx('block w-full aspect-square bg-ink animate-pulse', className)} />;
+  }
   return (
     <video
       ref={ref}
-      src={url}
+      src={blobUrl}
       muted
       playsInline
       preload="auto"
-      crossOrigin="anonymous"
       aria-label={label}
       className={cx('block w-full h-auto aspect-square bg-ink object-cover', className)}
     />
@@ -81,6 +112,7 @@ export function FlowOverlay({ flow, frame, scale = 3 }: { flow: FlowField; frame
 export function FrameImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const mock = isMockUrl(src);
+  const blobUrl = useMediaBlobUrl(src, mock);
   useEffect(() => {
     if (!mock) return;
     const spec = parseMockUrl(src);
@@ -91,29 +123,6 @@ export function FrameImage({ src, alt, className }: { src: string; alt: string; 
     if (ctx && f) ctx.drawImage(f, 0, 0);
   }, [src, mock]);
   if (mock) return <canvas ref={ref} width={256} height={256} role="img" aria-label={alt} className={cx('block w-full h-auto aspect-square', className)} />;
-  return <img src={src} alt={alt} loading="lazy" className={cx('block w-full h-auto aspect-square object-cover', className)} />;
-}
-
-/** Downloads a real video, or for mock clips a PNG contact sheet of all frames. */
-export function downloadClip(url: string, name: string) {
-  if (!isMockUrl(url)) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name}.mp4`;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.click();
-    return;
-  }
-  const frames = getClipFrames(url);
-  const c = document.createElement('canvas');
-  const cols = 4;
-  c.width = 256 * cols;
-  c.height = 256 * Math.ceil(frames.length / cols);
-  const ctx = c.getContext('2d')!;
-  frames.forEach((f, i) => ctx.drawImage(f, (i % cols) * 256, Math.floor(i / cols) * 256));
-  const a = document.createElement('a');
-  a.href = c.toDataURL('image/png');
-  a.download = `${name}_frames.png`;
-  a.click();
+  if (!blobUrl) return <div role="img" aria-label={alt} className={cx('block w-full aspect-square bg-ink animate-pulse', className)} />;
+  return <img src={blobUrl} alt={alt} loading="lazy" className={cx('block w-full h-auto aspect-square object-cover', className)} />;
 }

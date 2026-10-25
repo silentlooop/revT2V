@@ -1,9 +1,9 @@
 # Attention injection: capture the base U-Net's own attention on the
 # time-flipped latent (stock attention, LoRA off, no_grad), inject it
 # (rotated 180 degrees) into the real pass against that pass's own
-# to_v/to_out.0 -- which is what gets LoRA here, exactly like attn_lora's
-# target modules. See revt2v/methods/attn_injection.py for why this is a
-# no-op at transformer_in but a genuine effect at rotate_layers="up_attn1"
+# to_v/to_out.0 -- which is what gets LoRA here. See
+# revt2v/methods/attn_injection.py for why this is a no-op at
+# transformer_in but a genuine effect at rotate_layers="up_attn1"
 # (downstream of direction-aware temporal convs). Run with:
 #   python scripts/train.py --config configs/attn_injection.yaml
 
@@ -43,8 +43,8 @@ target_modules: null
 # The capture pass already ran (for the injected map), so this term is free.
 mirror_loss_weight: 1.0
 
-# Effective batch 8. Expect ~30-40% slower steps than attn_lora: every
-# micro-batch runs an extra no-grad capture forward pass.
+# Effective batch 8. Expect ~30-40% slower steps than a plain LoRA method:
+# every micro-batch runs an extra no-grad capture forward pass.
 batch_size: 1
 learning_rate: 0.0001
 num_steps: 1000

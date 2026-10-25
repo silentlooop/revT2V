@@ -29,12 +29,11 @@ compares `student` against `teacher_reversed`.
 ## Endpoints
 
 - `GET /health` — never requires `X-API-Key`.
-- `GET /methods` — ids: exactly `attn_injection`, `conv_oracle`, `conv_lora`
-  (never `attn_lora`/`attn_rotation` — those are research-only, MethodBank
-  only). `attn_injection` is always `available: true` (zero-shot until a
-  LoRA for the injection mechanism is loaded); `conv_oracle` is always
-  `available: true` (training-free); `conv_lora` depends on a checkpoint
-  existing in `REVT2V_HF_REPO`.
+- `GET /methods` — ids: exactly `attn_injection`, `conv_mirror`, `conv_lora`,
+  `attn_rotation`. `attn_injection` is always `available: true` (zero-shot
+  until a LoRA for the injection mechanism is loaded); `conv_mirror` is
+  always `available: true` (training-free); `conv_lora`/`attn_rotation`
+  each depend on a checkpoint existing in `REVT2V_HF_REPO`.
 - `POST /generate` — `400` for: empty/>500-char prompt; `steps` outside
   `[1, 100]`; `num_frames` not in `{8, 16, 24}`; unknown `student_method`;
   a known but `available: false` `student_method` (`detail` includes its

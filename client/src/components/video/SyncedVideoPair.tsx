@@ -52,7 +52,7 @@ export function SyncedVideoPair({
 }) {
   const three = showReversed && teacherReversed;
   return (
-    <div className={cx('grid gap-3', three ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2')}>
+    <div className={cx('grid gap-3 mx-auto', three ? 'max-w-xl grid-cols-2 sm:grid-cols-3' : 'max-w-md grid-cols-2')}>
       <VideoPanel video={teacher} clock={clock} title="TEACHER" sub="forward →" tone="ink" showFlow={showFlow} />
       {three && <VideoPanel video={teacherReversed} clock={clock} title="TEACHER REV" sub="reference" tone="soft" showFlow={showFlow} className="max-sm:col-span-2 max-sm:order-last" />}
       <VideoPanel video={student} clock={clock} title="STUDENT" sub="← reverse" tone="accent" showFlow={showFlow} />

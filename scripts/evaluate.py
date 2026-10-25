@@ -561,11 +561,15 @@ def main() -> None:
         prompts = [line.strip() for line in args.prompts.read_text().splitlines() if line.strip()]
         prompts = prompts[: args.limit] if args.limit else prompts
         bank = MethodBank(hf_repo_id=args.hf_repo, checkpoint_root=args.checkpoint_root)
-        for method in ("conv_lora", "attn_lora", "attn_injection"):
+        for method in ("conv_lora", "attn_injection"):
             try:
                 bank.load_adapter(method)
             except Exception as exc:  # noqa: BLE001 - missing/mismatched checkpoint
                 logger.warning("Skipping %s: %s", method, exc)
+        try:
+            bank.load_attn_rotation_adapter()
+        except Exception as exc:  # noqa: BLE001 - missing/mismatched checkpoint
+            logger.warning("Skipping attn_rotation: %s", exc)
         gen_kwargs = dict(
             negative_prompt=args.negative_prompt,
             num_inference_steps=args.steps,

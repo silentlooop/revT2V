@@ -8,8 +8,8 @@ flowchart LR
     INF --> EV[evaluation vs matched target]
     RT -. reference .-> EV
 
-    subgraph oracle [oracle reference path, training-free]
-      CO[conv_oracle: flip temporal conv kernels]
+    subgraph mirror [conv_mirror reference path, training-free]
+      CO[conv_mirror: flip temporal conv kernels]
     end
     S -. compared against .-> CO
     CO -. reference .-> EV

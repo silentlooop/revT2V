@@ -1,4 +1,4 @@
-"""Test conv_lora / attn_lora target selection, LoRA wiring, and the mirror loss.
+"""Test conv_lora's target selection, LoRA wiring, and the mirror loss.
 
 CPU tests use a tiny dummy U-Net built from real `TemporalConvLayer`s and
 `TransformerTemporalModel`s; the GPU test checks the real ModelScope counts
@@ -17,7 +17,7 @@ from diffusers.models.resnet import TemporalConvLayer
 from peft.tuners.lora import LoraLayer
 
 from revt2v.methods import conv_lora
-from revt2v.methods.conv_lora import AttnLoRA, ConvLoRA, temporal_attention_lora_targets
+from revt2v.methods.conv_lora import ConvLoRA, temporal_attention_lora_targets
 from revt2v.methods.conv_mirror import TEMPORAL_CONV_COUNT, flipped_blocks, mirrored_teacher_noise
 from revt2v.student import build_student
 
@@ -89,24 +89,26 @@ def test_attention_targets_are_v_and_out_of_attn1_attn2_incl_transformer_in():
     assert not any(name.endswith(("to_q", "to_k")) for name in names)
 
 
-def test_conv_lora_wraps_convs_and_attention_attn_lora_only_attention(toy_counts):
-    for method, expected in [(ConvLoRA(), {"Conv3d": 12, "Linear": 16}), (AttnLoRA(), {"Linear": 16})]:
-        unet = _ToyUNet().half()
-        targets = method.lora_targets(unet)
-        student = build_student(SimpleNamespace(unet=unet), lora_rank=2, lora_alpha=2, target_modules=targets)
+def test_conv_lora_wraps_convs_and_attention(toy_counts):
+    unet = _ToyUNet().half()
+    targets = ConvLoRA().lora_targets(unet)
+    student = build_student(SimpleNamespace(unet=unet), lora_rank=2, lora_alpha=2, target_modules=targets)
 
-        assert _lora_kinds(student) == expected
-        trainable = {name: p for name, p in student.named_parameters() if p.requires_grad}
-        assert trainable and all("lora_" in name for name in trainable)
-        assert all(p.dtype == torch.float32 for p in trainable.values())  # fp32 LoRA on an fp16 base
-        assert not any("to_q" in name or "to_k" in name or "spatial_proj" in name for name in trainable)
+    assert _lora_kinds(student) == {"Conv3d": 12, "Linear": 16}
+    trainable = {name: p for name, p in student.named_parameters() if p.requires_grad}
+    assert trainable and all("lora_" in name for name in trainable)
+    assert all(p.dtype == torch.float32 for p in trainable.values())  # fp32 LoRA on an fp16 base
+    assert not any("to_q" in name or "to_k" in name or "spatial_proj" in name for name in trainable)
 
 
-def test_lora_targets_assert_counts():
+def test_lora_targets_assert_counts(monkeypatch):
     with pytest.raises(ValueError, match=str(TEMPORAL_CONV_COUNT)):
         ConvLoRA().lora_targets(_ToyUNet())
+    # Pass the conv check (toy has 12) so the attention-Linear check (real
+    # default 68, toy has 16) is the one that raises.
+    monkeypatch.setattr(conv_lora, "TEMPORAL_CONV_COUNT", 12)
     with pytest.raises(ValueError, match="68"):
-        AttnLoRA().lora_targets(_ToyUNet())
+        ConvLoRA().lora_targets(_ToyUNet())
 
 
 def test_apply_refuses_flips(toy_counts):
@@ -158,4 +160,3 @@ def test_modelscope_lora_target_counts():
     unet = load_teacher().unet
     targets = ConvLoRA().lora_targets(unet)
     assert len(targets) == 88 + 68
-    assert len(AttnLoRA().lora_targets(unet)) == 68

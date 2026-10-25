@@ -94,6 +94,8 @@ def get_bank() -> MethodBank:
             for method in ("conv_lora", "attn_injection"):
                 loaded = _bank.load_adapter(method)
                 logger.info("checkpoint for %s: %s", method, "found" if loaded else "not found (zero-shot)" if method == "attn_injection" else "not found")
+            loaded = _bank.load_attn_rotation_adapter()
+            logger.info("checkpoint for attn_rotation: %s", "found" if loaded else "not found")
         return _bank
 
 
@@ -190,13 +192,13 @@ _METHOD_TABLE: dict[str, dict[str, Any]] = {
         "bank_method": "attn_injection",
         "run": _run_bank_method("attn_injection"),
     },
-    "conv_oracle": {
-        "label": "Conv oracle",
+    "conv_mirror": {
+        "label": "Conv mirror",
         "description": "Every temporal conv kernel flipped in time — an exact, training-free mirror of the teacher.",
         "kind": "training_free",
         "trained": False,
-        "bank_method": "conv_oracle",
-        "run": _run_bank_method("conv_oracle"),
+        "bank_method": "conv_mirror",
+        "run": _run_bank_method("conv_mirror"),
     },
     "conv_lora": {
         "label": "Conv LoRA",
@@ -206,11 +208,19 @@ _METHOD_TABLE: dict[str, dict[str, Any]] = {
         "bank_method": "conv_lora",
         "run": _run_bank_method("conv_lora"),
     },
+    "attn_rotation": {
+        "label": "Attention rotation",
+        "description": "Self-rotation (Q/K flipped on the frame axis) + LoRA on the 9 up-block temporal attn1 layers' to_v/to_out.0.",
+        "kind": "trained",
+        "trained": True,
+        "bank_method": "attn_rotation",
+        "run": _run_bank_method("attn_rotation"),
+    },
 }
 
-# Research-only methods (attn_lora, attn_rotation) stay out of this tuple on
-# purpose -- never exposed to GET /methods or acceptable as student_method.
-PUBLIC_METHOD_IDS = ("attn_injection", "conv_oracle", "conv_lora")
+# The project's four methods -- every id GET /methods exposes and every id
+# POST /generate's student_method accepts.
+PUBLIC_METHOD_IDS = ("attn_injection", "conv_mirror", "conv_lora", "attn_rotation")
 
 
 def _attn_injection_label(bank: MethodBank) -> str:

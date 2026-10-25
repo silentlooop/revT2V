@@ -12,7 +12,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 INCLUDE_DIRS=(revt2v scripts configs prompts notebooks tests docs client server kaggle)
-INCLUDE_FILES=(README.md STRUCTURE.md pyproject.toml SUBMISSION_CHECKLIST.md)
+INCLUDE_FILES=(README.md STRUCTURE.md pyproject.toml)
 EXTRA_DIRS=(report_assets results/final logs)
 
 EXCLUDE_PRUNE=(

@@ -1,12 +1,8 @@
-# Main method (TA-approved): LoRA on the UNflipped teacher, no kernel flips,
-# no attention rotation. Targets: all 88 temporal Conv3d (inside
-# TemporalConvLayer) + to_v/to_out.0 of attn1/attn2 in every
-# TransformerTemporalModel incl. transformer_in (68 Linears). See
-# revt2v/methods/conv_lora.py. Run with:
+# Main method: LoRA on the UNflipped teacher, no kernel flips, no attention
+# rotation. Targets: all 88 temporal Conv3d (inside TemporalConvLayer) +
+# to_v/to_out.0 of attn1/attn2 in every TransformerTemporalModel incl.
+# transformer_in (68 Linears). See revt2v/methods/conv_lora.py. Run with:
 #   python scripts/train.py --config configs/conv_lora.yaml
-#
-# Identical to configs/attn_lora.yaml except method / hf_subfolder (the
-# baseline gets the 68 attention Linears only).
 
 seed: 42
 method: conv_lora

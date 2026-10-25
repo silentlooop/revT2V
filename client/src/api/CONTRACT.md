@@ -6,7 +6,7 @@ The frontend talks to the backend only through `src/api/client.ts`. Implement th
 - Errors: return a non-2xx status with `{"detail": "human readable message"}`. FastAPI's `HTTPException` does this by default.
 - CORS: allow the frontend origin (e.g. `http://localhost:5173`), methods `GET, POST`, header `Content-Type`.
 - Media URLs may be absolute (`https://…`) or relative to the API (`/media/job_x/teacher.mp4`). The client prefixes relative URLs with `VITE_API_BASE_URL`.
-- Videos must be browser-playable **H.264 MP4** (`yuv420p`), served with CORS headers. The player seeks the `<video>` frame by frame, so `crossOrigin="anonymous"` must work.
+- Videos must be browser-playable **H.264 MP4** (`yuv420p`). The player fetches every real (non-mock) `video_url`/frame PNG itself with the tunnel-bypass/auth headers (`fetchMediaBlob()` in `api/client.ts`) and plays it from a same-origin Object URL, rather than pointing a `<video>`/`<img>` tag straight at the API's URL — that bare tag can't attach the `ngrok-skip-browser-warning`/`bypass-tunnel-reminder`/`X-API-Key` headers a free tunnel or an API key may require. CORS still needs to be open (`allow_origins=["*"]`) for that initial `fetch()` to succeed.
 
 ---
 
@@ -54,8 +54,9 @@ Expected ids:
 | id | kind | what it does |
 |---|---|---|
 | `attn_injection` | `trained` | capture the base U-Net's own attention on the time-flipped latent (stock attention, no LoRA), inject it rotated 180° against the real pass's own V/output — a to_v/to_out.0 LoRA trained for this mechanism is used if one exists, else zero-shot |
-| `conv_oracle` | `training_free` | flip every temporal conv kernel in time (exact time mirror of the teacher) |
+| `conv_mirror` | `training_free` | flip every temporal conv kernel in time (exact time mirror of the teacher) |
 | `conv_lora` | `main` | LoRA on temporal convs + attention, ε-MSE + mirror loss |
+| `attn_rotation` | `trained` | self-rotation (Q/K flipped on the frame axis) + LoRA on the 9 up-block temporal attn1 layers' to_v/to_out.0 |
 
 ## `POST /generate`
 
@@ -199,10 +200,10 @@ Set-level results for the Findings section. Shape: `Results` in `types.ts`. If y
     { "method": "conv_lora", "label": "conv_lora student", "steps": [0, 50], "total": [0.42, 0.39], "components": [{ "name": "ε-MSE", "values": [0.3, 0.28] }] }
   ],
   "qualitative": [
-    { "prompt": "…", "seed": 42, "videos": { "teacher": "/media/qual/smoke/teacher.mp4", "attn_injection": "…", "conv_oracle": "…", "conv_lora": "…" } }
+    { "prompt": "…", "seed": 42, "videos": { "teacher": "/media/qual/smoke/teacher.mp4", "attn_injection": "…", "conv_mirror": "…", "conv_lora": "…", "attn_rotation": "…" } }
   ],
   "findings": [
-    { "id": "f1", "method": "conv_oracle", "verdict": "positive", "title": "…", "body": "…" }
+    { "id": "f1", "method": "conv_mirror", "verdict": "positive", "title": "…", "body": "…" }
   ]
 }
 ```

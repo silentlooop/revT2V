@@ -9,7 +9,7 @@ Temporal attention needs no change: it has no positional encoding, so it is
 order-agnostic and already commutes with a frame flip. Rotating it on top of
 flipped convs would be wrong.
 
-This is the **conv_oracle** method: teacher weights, every temporal conv
+This is the **conv_mirror** method: teacher weights, every temporal conv
 flipped, no LoRA, no training. Equivalent to reversing the teacher's output,
 so it's a reference/upper bound, not a learned method -- see
 `revt2v.infer.MethodBank` for how it's selected at inference (no checkpoint
@@ -153,7 +153,7 @@ def check_flip_request(requested: Optional[Sequence[str]], metadata: Dict[str, A
         raise ValueError(
             f"Refusing to flip blocks {list(requested)} on an adapter "
             f"trained with flip_blocks={list(trained)}: extra flips on a "
-            "trained adapter double-reverse time. Use method 'conv_oracle' "
+            "trained adapter double-reverse time. Use method 'conv_mirror' "
             "for the flipped teacher instead."
         )
     return trained

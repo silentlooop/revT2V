@@ -6,7 +6,7 @@ import { mockClipUrl, sceneForPrompt } from '../lib/mockClips';
  * Rows with `todo: true` show a TODO tag until you replace them.
  */
 
-const QUAL_METHODS = ['teacher', 'attn_injection', 'conv_oracle', 'conv_lora'];
+const QUAL_METHODS = ['teacher', 'attn_injection', 'conv_mirror', 'conv_lora', 'attn_rotation'];
 
 // TODO: replace mock:// URLs with real mp4 URLs (same seed for every method in a row)
 function qual(prompt: string, seed: number) {
@@ -38,8 +38,9 @@ export const RESULTS: Results = {
   // TODO: placeholders — replace with set-level numbers
   leaderboard: [
     { method: 'attn_injection', fvd: 452, clip: 29.9, dynamic_degree: 0.38, flow_cosine: 0.41, todo: true },
-    { method: 'conv_oracle', fvd: 21, clip: 31.1, dynamic_degree: 0.7, flow_cosine: 0.99, todo: true, note: 'training-free' },
+    { method: 'conv_mirror', fvd: 21, clip: 31.1, dynamic_degree: 0.7, flow_cosine: 0.99, todo: true, note: 'training-free' },
     { method: 'conv_lora', fvd: 246, clip: 30.6, dynamic_degree: 0.64, flow_cosine: 0.81, todo: true },
+    { method: 'attn_rotation', fvd: 410, clip: 30.1, dynamic_degree: 0.42, flow_cosine: 0.37, todo: true },
   ],
 
   // TODO: paste real loss logs
@@ -56,6 +57,7 @@ export const RESULTS: Results = {
       ],
       todo: true,
     },
+    { method: 'attn_rotation', label: 'attn_rotation', steps, total: curve(0.41, 0.19, 480, 0.006, 5), todo: true },
   ],
 
   qualitative: [
@@ -77,7 +79,7 @@ export const RESULTS: Results = {
     },
     {
       id: 'f2',
-      method: 'conv_oracle',
+      method: 'conv_mirror',
       verdict: 'positive',
       title: 'Flipping temporal convs gives an exact mirror',
       body: 'No training. Output matches the reversed teacher on smoke, ink, juice and walking.',
@@ -88,6 +90,14 @@ export const RESULTS: Results = {
       verdict: 'todo',
       title: 'TODO: conv_lora result',
       body: 'TODO: one line on what the trained student achieves.',
+      todo: true,
+    },
+    {
+      id: 'f4',
+      method: 'attn_rotation',
+      verdict: 'todo',
+      title: 'TODO: attn_rotation result',
+      body: 'TODO: one line on what self-rotation + attention-only LoRA achieves without touching the convs.',
       todo: true,
     },
   ],

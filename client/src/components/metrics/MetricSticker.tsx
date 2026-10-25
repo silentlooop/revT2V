@@ -4,7 +4,7 @@ import { cx, fmtNum } from '../../lib/format';
 import { InfoTip } from '../ui/Tooltip';
 
 type Help = (typeof METRIC_HELP)[keyof typeof METRIC_HELP];
-type Tone = 'good' | 'mid' | 'bad';
+type Tone = 'good' | 'mid' | 'bad' | 'na';
 
 function Tile({ help, value, sub, tone, verdict, note }: { help: Help; value: string; sub: React.ReactNode; tone: Tone; verdict: string; note?: string }) {
   return (
@@ -27,6 +27,7 @@ function Tile({ help, value, sub, tone, verdict, note }: { help: Help; value: st
           tone === 'good' && 'bg-accent text-on-accent',
           tone === 'mid' && 'bg-accent-wash text-accent-ink',
           tone === 'bad' && 'bg-ink text-white',
+          tone === 'na' && 'bg-paper text-mute border border-mute',
         )}
       >
         {verdict}
@@ -39,10 +40,21 @@ export function MetricsRow({ m }: { m: PairMetrics }) {
   const clipD = m.clip.student - m.clip.teacher;
   const dynR = m.dynamic_degree.teacher > 0 ? m.dynamic_degree.student / m.dynamic_degree.teacher : 0;
   const cos = m.optical_flow.direction_cosine;
-  const fvdTone: Tone = m.fvd < 150 ? 'good' : m.fvd < 450 ? 'mid' : 'bad';
+  // Single-pair FVD isn't meaningful (needs a batch of samples -- see
+  // server/app.py's compute_pair_metrics) so the live server always
+  // returns NaN here; show it as "n/a", not a misleading "far"/bad tile.
+  const fvdAvailable = !Number.isNaN(m.fvd);
+  const fvdTone: Tone = !fvdAvailable ? 'na' : m.fvd < 150 ? 'good' : m.fvd < 450 ? 'mid' : 'bad';
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <Tile help={METRIC_HELP.fvd} value={fmtNum(m.fvd, 0)} sub="vs reversed teacher" tone={fvdTone} verdict={fvdTone === 'good' ? 'close' : fvdTone === 'mid' ? 'ok' : 'far'} note={m.notes.fvd} />
+      <Tile
+        help={METRIC_HELP.fvd}
+        value={fmtNum(m.fvd, 0)}
+        sub="vs reversed teacher"
+        tone={fvdTone}
+        verdict={!fvdAvailable ? 'n/a' : fvdTone === 'good' ? 'close' : fvdTone === 'mid' ? 'ok' : 'far'}
+        note={m.notes.fvd}
+      />
       <Tile
         help={METRIC_HELP.clip}
         value={fmtNum(m.clip.student, 1)}

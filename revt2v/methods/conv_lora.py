@@ -10,12 +10,8 @@ inference. It learns reverse time from
 where the teacher is the same U-Net with LoRA disabled, under no_grad
 (`conv_mirror.mirrored_teacher_noise`). Frame axis = dim 2 of (B, 4, F, H, W).
 
-Two configs share this loss so they're directly comparable:
-- `conv_lora` (main): LoRA on every Conv3d inside every TemporalConvLayer
-  (88) + to_v/to_out.0 of every temporal attention layer (68 Linears).
-- `attn_lora` (baseline): the 68 temporal attention Linears only.
-
-Q/K stay frozen in both.
+LoRA on every Conv3d inside every TemporalConvLayer (88) + to_v/to_out.0 of
+every temporal attention layer (68 Linears). Q/K stay frozen.
 """
 
 from __future__ import annotations
@@ -76,16 +72,20 @@ def mirror_loss(
     return loss
 
 
-class AttnLoRA:
-    """Baseline: LoRA on temporal attention to_v/to_out.0 only."""
+class ConvLoRA:
+    """Main method: LoRA on the 88 temporal Conv3d + the 68 temporal attention Linears."""
 
     def lora_targets(self, unet: Any, rotate_layers: Any = None) -> List[str]:
-        targets = temporal_attention_lora_targets(unet)
-        if len(targets) != TEMPORAL_ATTN_LINEAR_COUNT:
+        require_conv3d_lora()
+        convs = conv_lora_targets(unet)
+        if len(convs) != TEMPORAL_CONV_COUNT:
+            raise ValueError(f"Expected {TEMPORAL_CONV_COUNT} temporal Conv3d layers, found {len(convs)}")
+        attn_targets = temporal_attention_lora_targets(unet)
+        if len(attn_targets) != TEMPORAL_ATTN_LINEAR_COUNT:
             raise ValueError(
-                f"Expected {TEMPORAL_ATTN_LINEAR_COUNT} temporal attention Linears, found {len(targets)}"
+                f"Expected {TEMPORAL_ATTN_LINEAR_COUNT} temporal attention Linears, found {len(attn_targets)}"
             )
-        return targets
+        return convs + attn_targets
 
     def apply(self, student: Any, **kwargs: Any) -> Any:
         """No flips, no processor swaps: refuse a student that has either."""
@@ -115,14 +115,3 @@ class AttnLoRA:
             timesteps=timesteps,
             encoder_hidden_states=encoder_hidden_states,
         )
-
-
-class ConvLoRA(AttnLoRA):
-    """Main method: LoRA on the 88 temporal Conv3d + the 68 temporal attention Linears."""
-
-    def lora_targets(self, unet: Any, rotate_layers: Any = None) -> List[str]:
-        require_conv3d_lora()
-        convs = conv_lora_targets(unet)
-        if len(convs) != TEMPORAL_CONV_COUNT:
-            raise ValueError(f"Expected {TEMPORAL_CONV_COUNT} temporal Conv3d layers, found {len(convs)}")
-        return convs + super().lora_targets(unet)

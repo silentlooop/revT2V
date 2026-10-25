@@ -1,4 +1,4 @@
-import { LINKS, REFERENCES } from '../content/links';
+import { LINKS } from '../content/links';
 import { cx } from '../lib/format';
 
 function Logo({ kind }: { kind: string }) {
@@ -48,29 +48,6 @@ export function LinksSection() {
             );
           })}
         </div>
-
-        <h2 className="font-pixel text-xs uppercase mt-10 mb-4">References</h2>
-        <ol className="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
-          {REFERENCES.map((r, i) => (
-            <li key={r.title} className="flex gap-3 min-w-0">
-              <span className="font-mono text-xs text-accent pt-0.5 w-6 shrink-0">[{i + 1}]</span>
-              <span className="min-w-0">
-                {r.url ? (
-                  <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:text-accent hover:underline underline-offset-2">
-                    {r.title} <span aria-hidden>↗</span>
-                  </a>
-                ) : (
-                  <span className="font-medium">{r.title}</span>
-                )}
-                <span className="block font-mono text-[11px] text-mute">
-                  {r.note}
-                  {r.note && !r.url && ' · '}
-                  {!r.url && <span className="text-bad">link needed</span>}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );

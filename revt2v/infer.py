@@ -218,8 +218,9 @@ def _rotation_processors(unet: Any) -> Dict[str, Any]:
     "up_attn1" layer selection exactly, reimplemented here because that
     method assumes a peft-wrapped student (it unwraps via `get_base_model`/
     `base_model.model`) -- MethodBank also needs to install/remove these
-    processors on the plain teacher U-Net, for `attn_rotation_zeroshot`
-    before any adapter has ever been loaded.
+    processors on the plain teacher U-Net while `generate()` runs
+    `attn_rotation`, since the loaded adapter only wraps the LoRA layers,
+    not the attention processors themselves.
     """
     from diffusers import TransformerTemporalModel
 
@@ -278,16 +279,15 @@ def _infer_lora_config_from_state_dict(
 class MethodBank:
     """Every inference method on ONE shared U-Net (fits a 16 GB T4).
 
-    Methods: "teacher", "conv_oracle", "attn_injection" (always available --
-    the last one runs zero-shot until a checkpoint is loaded), and, if their
-    checkpoints exist, "conv_lora" and "attn_lora". Switching enables/disables
-    LoRA adapters, swaps attention processors, and flips/unflips temporal
-    conv kernels; the clean teacher state is restored after every call.
-
-    Also "attn_rotation_zeroshot" (always available -- the original
-    self-rotation mechanism, no LoRA, research-only: not in the server's
-    public method list) and "attn_rotation" (only once
-    `load_attn_rotation_adapter()` finds and verifies its checkpoint).
+    The four project methods: "teacher" (the frozen baseline, always
+    available), "conv_mirror" (training-free exact kernel-flip mirror,
+    always available), "attn_injection" (always available -- runs
+    zero-shot until a checkpoint is loaded), and "conv_lora" and
+    "attn_rotation" (each only once their checkpoint is loaded --
+    `load_adapter("conv_lora")` / `load_attn_rotation_adapter()`).
+    Switching enables/disables LoRA adapters, swaps attention processors,
+    and flips/unflips temporal conv kernels; the clean teacher state is
+    restored after every call.
     """
 
     def __init__(
@@ -304,19 +304,17 @@ class MethodBank:
         self.pipeline = teacher_module.load_teacher(model_id, device, dtype)
         self.student = None  # PeftModel once the first adapter is loaded
         self.adapters = {}  # method name -> checkpoint metadata
-        self.methods = ["teacher", "conv_oracle", "attn_injection", "attn_rotation_zeroshot"]
+        self.methods = ["teacher", "conv_mirror", "attn_injection"]
 
     def load_adapter(self, method: str, hub_subfolder: Optional[str] = None) -> bool:
-        """Load "conv_lora", "attn_lora" or "attn_injection" as a named LoRA
-        adapter. Returns False (and skips it, leaving "attn_injection"
-        running zero-shot) if no checkpoint exists -- or, for
-        "attn_injection" specifically, if one exists but its metadata
-        doesn't confirm it was trained with the injection mechanism active
-        (e.g. someone pointed this at an old plain-LoRA checkpoint by
-        mistake)."""
+        """Load "conv_lora" or "attn_injection" as a named LoRA adapter.
+        Returns False (and skips it, leaving "attn_injection" running
+        zero-shot) if no checkpoint exists -- or, for "attn_injection"
+        specifically, if one exists but its metadata doesn't confirm it was
+        trained with the injection mechanism active (e.g. someone pointed
+        this at an old plain-LoRA checkpoint by mistake)."""
         training_method = {
             "conv_lora": "conv_lora",
-            "attn_lora": "attn_lora",
             "attn_injection": "attn_injection",
         }[method]
         payload = _resume_checkpoint(
@@ -510,10 +508,10 @@ class MethodBank:
         unet = self.pipeline.unet
         processors = dict(unet.attn_processors)
         try:
-            if method in ("teacher", "conv_oracle"):
+            if method in ("teacher", "conv_mirror"):
                 adapters_off = self.student.disable_adapter() if self.student is not None else nullcontext()
                 with adapters_off:
-                    if method == "conv_oracle":
+                    if method == "conv_mirror":
                         set_flip_state(unet, ALL_BLOCKS if flip_blocks is None else flip_blocks)
                     yield self.student if self.student is not None else unet
             else:
@@ -534,8 +532,8 @@ class MethodBank:
         flip_blocks: Optional[Sequence[str]] = None,
         **kwargs,
     ) -> dict:
-        """Run `generate` with `method` active. `flip_blocks` overrides the
-        oracle's flips (default: all) or must match a conv student's
+        """Run `generate` with `method` active. `flip_blocks` overrides
+        conv_mirror's flips (default: all) or must match a conv student's
         trained flips; other kwargs go to `generate`."""
         if method == "attn_injection":
             if flip_blocks:
@@ -548,25 +546,19 @@ class MethodBank:
             return attn_injection.generate(
                 prompt, self.pipeline, model, rotate_layers=rotate_layers, seed=seed, device=self.device, latents=latents, **kwargs
             )
-        if method in ("attn_rotation", "attn_rotation_zeroshot"):
+        if method == "attn_rotation":
             if flip_blocks:
-                raise ValueError(f"{method} does not take conv flips")
-            if method == "attn_rotation" and "attn_rotation" not in self.adapters:
+                raise ValueError("attn_rotation does not take conv flips")
+            if "attn_rotation" not in self.adapters:
                 raise ValueError(
-                    "attn_rotation has no loaded checkpoint -- call load_attn_rotation_adapter() "
-                    "first, or use 'attn_rotation_zeroshot' instead"
+                    "attn_rotation has no loaded checkpoint -- call load_attn_rotation_adapter() first"
                 )
             unet = self.pipeline.unet
             processors_before = dict(unet.attn_processors)
             try:
                 unet.set_attn_processor(_rotation_processors(unet))
-                if method == "attn_rotation":
-                    self.student.set_adapter("attn_rotation")
-                    return generate(prompt, self.pipeline, self.student, seed=seed, device=self.device, latents=latents, **kwargs)
-                adapters_off = self.student.disable_adapter() if self.student is not None else nullcontext()
-                with adapters_off:
-                    model = self.student if self.student is not None else unet
-                    return generate(prompt, self.pipeline, model, seed=seed, device=self.device, latents=latents, **kwargs)
+                self.student.set_adapter("attn_rotation")
+                return generate(prompt, self.pipeline, self.student, seed=seed, device=self.device, latents=latents, **kwargs)
             finally:
                 unet.set_attn_processor(processors_before)
         with self._method_state(method, flip_blocks) as model:

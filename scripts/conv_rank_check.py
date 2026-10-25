@@ -97,7 +97,7 @@ def print_report(report: dict, target: float) -> int:
            else f"NOT reached even at {RANKS[-1]}")
         + ")"
     )
-    print(f"Set it in configs/conv_lora.yaml and configs/attn_lora.yaml, or pass --set lora_rank={rank}")
+    print(f"Set it in configs/conv_lora.yaml, or pass --set lora_rank={rank}")
     return rank
 
 

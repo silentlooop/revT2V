@@ -1,4 +1,4 @@
-export type MethodId = 'attn_injection' | 'conv_oracle' | 'conv_lora' | (string & {});
+export type MethodId = 'attn_injection' | 'conv_mirror' | 'conv_lora' | 'attn_rotation' | (string & {});
 
 export type MethodKind = 'main' | 'trained' | 'training_free';
 

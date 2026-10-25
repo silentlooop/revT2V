@@ -9,8 +9,9 @@ Methods:
 | method | idea |
 |---|---|
 | `attn_injection` | rotate the teacher's temporal attention scores 180° + LoRA on value/output |
-| `conv_oracle` | flip temporal conv kernels in time, no training (exact mirror) |
+| `conv_mirror` | flip temporal conv kernels in time, no training (exact mirror) |
 | `conv_lora` | LoRA on temporal convs + attention, ε-MSE + mirror loss (main) |
+| `attn_rotation` | self-rotation on the 9 up-block temporal attn1 layers + LoRA on value/output |
 
 Stack: React 19 + Vite + TypeScript, Tailwind CSS v4 (custom tokens only), Framer Motion, KaTeX. No UI kits.
 
@@ -44,7 +45,7 @@ Restart `npm run dev`. Nothing else changes: `client.ts` is the only file that k
 
 Mock-only extras:
 - **sim offline** button (Generate section header) toggles the backend into "offline" to show the Win98 dialog and the example gallery. You can also open the app with `?offline`.
-- Mock "videos" are `mock://` URLs rendered to canvas. Download gives a PNG contact sheet instead of an MP4.
+- Mock "videos" are `mock://` URLs rendered to canvas instead of a real `<video>`/MP4.
 
 ## Editing content (no component changes needed)
 
@@ -52,7 +53,7 @@ Mock-only extras:
 |---|---|
 | Theory text, equations (KaTeX), tags | `src/content/theory.ts` |
 | Findings, results table, loss curves, side-by-side grid | `src/content/results.ts` |
-| Hugging Face + GitHub links and references at the bottom of the page | `src/content/links.ts` |
+| Hugging Face + GitHub links at the bottom of the page | `src/content/links.ts` |
 | Example prompts, defaults, step presets, metric tooltips, offline gallery | `src/content/generate.ts` |
 | Colours, fonts, shadows, textures | `src/styles/index.css` (`@theme` block) |
 
@@ -101,7 +102,7 @@ The interface has three jobs: (1) let anyone **generate** a teacher/student pair
 ```
 
 - **Single API seam.** Components never call `fetch`. Everything goes through six functions (`getHealth`, `getMethods`, `generate`, `getJob`, `getResult`, `getResults`) with shared TypeScript types. A written contract (`CONTRACT.md`) let the frontend be built and tested before the backend existed, and keeps the two halves decoupled.
-- **Realistic mock.** The mock reproduces the backend's *temporal behaviour*, not just its shapes: queue position, teacher then student phases with per-step progress, and jobs whose progress is derived from their start time (stored in `localStorage`), so a refresh resumes correctly. Mock videos are procedural canvas scenes (smoke, ink, pouring, a bouncing ball, a walking figure), each with an analytic velocity field. That lets the optical-flow overlay and the flow metrics (magnitude, direction cosine against the reversed teacher, FROZEN flag) be computed from actual motion rather than invented. Each method maps to its expected behaviour (`attn_injection` → damped motion with a direction wobble, `conv_oracle` → exact mirror, `conv_lora` → near-exact reversal).
+- **Realistic mock.** The mock reproduces the backend's *temporal behaviour*, not just its shapes: queue position, teacher then student phases with per-step progress, and jobs whose progress is derived from their start time (stored in `localStorage`), so a refresh resumes correctly. Mock videos are procedural canvas scenes (smoke, ink, pouring, a bouncing ball, a walking figure), each with an analytic velocity field. That lets the optical-flow overlay and the flow metrics (magnitude, direction cosine against the reversed teacher, FROZEN flag) be computed from actual motion rather than invented. Each method maps to its expected behaviour (`attn_injection` → damped motion with a direction wobble, `conv_mirror` → exact mirror, `conv_lora` → near-exact reversal, `attn_rotation` → direction wobble without conv-level reversal).
 - **Content as data.** All theory text and every result number lives in `src/content/`. Placeholder results are flagged (`todo: true`) and rendered with a visible TODO sticker, so unfinished numbers cannot be mistaken for real ones.
 
 ### Data flow of a generation

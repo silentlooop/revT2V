@@ -379,7 +379,7 @@ def dataset_stats() -> None:
 
 def workflow_diagram() -> None:
     """(d) A clean block diagram (matplotlib only) of the pipeline, with the
-    conv_oracle reference path drawn separately. Also writes docs/workflow.mmd."""
+    conv_mirror reference path drawn separately. Also writes docs/workflow.mmd."""
     plt = _try_matplotlib()
     if plt is None:
         logger.info("[workflow_diagram] skip: matplotlib not installed (pip install -e '.[report]')")
@@ -421,12 +421,12 @@ def workflow_diagram() -> None:
         arrow(6.2, 3.0, 6.5, 3.0)
         arrow(9.6, 4.5, 8.0, 3.5)
 
-        box(2.2, 0.4, 1.9, 1, "conv_oracle\n(flip temporal conv\nkernels, no training)", fc="#f5e3c8")
+        box(2.2, 0.4, 1.9, 1, "conv_mirror\n(flip temporal conv\nkernels, no training)", fc="#f5e3c8")
         arrow(3.15, 2.5, 3.15, 1.4)
         arrow(4.1, 0.9, 6.5, 2.7)
 
         ax.text(0.3, 5.9, "revT2V workflow", fontsize=13, weight="bold")
-        ax.text(2.2, 1.6, "reference path (oracle, training-free)", fontsize=8, style="italic", color="#7a5b24")
+        ax.text(2.2, 1.6, "reference path (conv_mirror, training-free)", fontsize=8, style="italic", color="#7a5b24")
 
         fig.tight_layout()
         fig.savefig(OUT / "workflow_diagram.png", dpi=150)
@@ -445,8 +445,8 @@ def workflow_diagram() -> None:
     INF --> EV[evaluation vs matched target]
     RT -. reference .-> EV
 
-    subgraph oracle [oracle reference path, training-free]
-      CO[conv_oracle: flip temporal conv kernels]
+    subgraph mirror [conv_mirror reference path, training-free]
+      CO[conv_mirror: flip temporal conv kernels]
     end
     S -. compared against .-> CO
     CO -. reference .-> EV

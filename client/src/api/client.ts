@@ -11,12 +11,33 @@ export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 const API_KEY = import.meta.env.VITE_API_KEY;
 
+// Free tunnels (ngrok, localtunnel) serve an HTML interstitial instead of
+// proxying a request that looks like a plain browser navigation -- these
+// headers skip it. A <video src="...">/<img src="...">/<a href="..."> tag
+// can't attach headers itself, so anything fetching real (non-mock) media
+// must go through fetchMediaBlob() below instead of using the URL directly.
+export const MEDIA_HEADERS: Record<string, string> = {
+  'ngrok-skip-browser-warning': 'true',
+  'bypass-tunnel-reminder': 'true',
+  ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+};
+
+/** Fetch a media URL with the tunnel-bypass/auth headers and return an
+ * Object URL for it. Caller owns the result and must URL.revokeObjectURL
+ * it when done (e.g. on unmount). */
+export async function fetchMediaBlob(url: string): Promise<string> {
+  const res = await fetch(url, { headers: MEDIA_HEADERS });
+  if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+      ...MEDIA_HEADERS,
       ...(init?.headers ?? {}),
     },
   });

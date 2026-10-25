@@ -1,0 +1,16 @@
+2026-10-25 11:08:03,568 INFO Method=attn_rotation device=cuda data_root=data/latents
+2026-10-25 11:08:03,568 INFO Loading teacher pipeline ali-vilab/text-to-video-ms-1.7b on cuda (downloads ~5GB on a fresh environment, no progress logged)...
+2026-10-25 11:08:29,205 INFO Teacher pipeline loaded
+2026-10-25 11:08:29,339 INFO LoRA-wrapped layers: Conv3d=0 Linear=18 (all: {'Linear': 18}) | trainable params=215040 (torch.float32)
+2026-10-25 11:08:30,244 INFO Resumed from step 800
+2026-10-25 11:08:30,324 INFO Dataset: 416 clips from data/latents (min_motion_score=None)
+2026-10-25 11:13:03,328 INFO step=820 loss=0.1504 step_time=13.87s
+2026-10-25 11:17:11,870 INFO step=840 loss=0.1060 step_time=11.90s
+2026-10-25 11:21:09,096 INFO step=860 loss=0.0972 step_time=11.85s
+2026-10-25 11:25:06,632 INFO step=880 loss=0.1042 step_time=11.84s
+2026-10-25 11:29:03,699 INFO step=900 loss=0.1055 step_time=11.86s
+2026-10-25 11:33:00,970 INFO step=920 loss=0.1123 step_time=11.86s
+2026-10-25 11:36:58,233 INFO step=940 loss=0.1273 step_time=11.88s
+2026-10-25 11:40:55,338 INFO step=960 loss=0.1358 step_time=11.84s
+2026-10-25 11:44:52,860 INFO step=980 loss=0.0590 step_time=11.89s
+2026-10-25 11:49:28,625 INFO Training complete: 1000 steps, checkpoint at results/checkpoints/attn_rotation/latest.pt

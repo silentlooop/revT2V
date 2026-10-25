@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import type { PairResult } from '../../api/types';
 import { useClock } from '../../hooks/useClock';
-import { DownloadIcon } from '../ui/Icons';
 import { Sticker } from '../ui/Sticker';
 import { Toggle, Transport } from '../ui/Transport';
 import { MetricsRow } from '../metrics/MetricSticker';
-import { downloadClip } from '../video/ClipSurface';
 import { FrameStrip } from '../video/FrameStrip';
 import { SyncedVideoPair } from '../video/SyncedVideoPair';
 
@@ -71,13 +69,6 @@ export function ResultCard({ result, example }: { result: PairResult; example?: 
         <span>{r.steps} steps</span>
         <span>cfg {r.cfg}</span>
         <span>{result.time_taken_s}s</span>
-        <span className="ml-auto flex gap-3 text-ink">
-          {(['teacher', 'student'] as const).map((k) => (
-            <button key={k} type="button" onClick={() => downloadClip(result[k].video_url, `${result.job_id}_${k}`)} className="flex items-center gap-1 hover:text-accent">
-              <DownloadIcon size={12} /> {k}
-            </button>
-          ))}
-        </span>
       </footer>
     </article>
   );
